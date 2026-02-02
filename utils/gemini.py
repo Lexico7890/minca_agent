@@ -8,6 +8,7 @@ eventualmente agregar reintentos.
 """
 
 import os
+from typing import Optional
 from google import genai
 from google.genai import types
 
@@ -34,7 +35,7 @@ class GeminiClient:
     def llamar(
         self,
         prompt: str,
-        system_prompt: str | None = None,
+        system_prompt: Optional[str] = None,
         temperatura: float = 0.3,
         max_tokens: int = 2048
     ) -> str:
