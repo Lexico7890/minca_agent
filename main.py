@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     """Inicio y cierre del servicio."""
     await startup()  # Inicializa el pool de DB
     yield
-    shutdown()       # Cierra el pool
+    await shutdown()  # Cierra el pool
 
 
 # --- Aplicación ---
@@ -142,29 +142,34 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     # 3. Obtener sesión
     session_id, memoria_actual = obtener_memoria_sesion(body.session_id)
 
-    # 4. Crear estado inicial
-    # La memoria de la sesión se pasa al estado para que los nodos
-    # del grafo tengan contexto de la conversación previa.
-    estado_inicial = AgentState(
-        pregunta_actual=pregunta,
-        memoria=memoria_actual.copy()  # Copy para no modificar la referencia original
-    )
+    # 4. Crear estado inicial como diccionario.
+    # LangGraph ainvoke() espera un dict como entrada y retorna un dict.
+    # Solo pasamos los campos que cambian; el resto usa valores por defecto
+    # de AgentState automáticamente.
+    estado_inicial = {
+        "pregunta_actual": pregunta,
+        "memoria": [msg.model_dump() for msg in memoria_actual]
+    }
 
     # 5. Ejecutar el grafo
     # ainvoke() ejecuta todos los nodos según la estructura del grafo
-    # y retorna el estado final después de que el último nodo termine.
+    # y retorna el estado final como diccionario.
     resultado = await agent.ainvoke(estado_inicial)
 
     # 6. Guardar memoria actualizada
-    # El generador de respuesta ya actualizó state.memoria
-    guardar_memoria_sesion(session_id, resultado.memoria)
+    # El generador de respuesta ya actualizó memoria en el estado.
+    # Reconstruimos los objetos MensajeMemoria desde los dicts del resultado.
+    memoria_actualizada = [
+        MensajeMemoria(**msg) for msg in resultado["memoria"]
+    ]
+    guardar_memoria_sesion(session_id, memoria_actualizada)
 
     # 7. Retornar respuesta
     return RespuestaResponse(
-        respuesta=resultado.respuesta_final,
+        respuesta=resultado["respuesta_final"],
         session_id=session_id,
-        intenciones_detectadas=resultado.intenciones,
-        errores=resultado.errores if resultado.errores else None
+        intenciones_detectadas=resultado["intenciones"],
+        errores=resultado["errores"] if resultado["errores"] else None
     )
 
 
