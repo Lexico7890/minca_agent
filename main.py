@@ -15,6 +15,7 @@ pero para el MVP un diccionario es suficiente y más simple.
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
+from typing import Optional, Dict, List
 import os
 import uuid
 
@@ -25,7 +26,7 @@ from app.state import AgentState, MensajeMemoria
 
 # --- Almacén de sesiones en memoria ---
 # Clave: session_id | Valor: lista de MensajeMemoria
-_sesiones: dict[str, list[MensajeMemoria]] = {}
+_sesiones: Dict[str, List[MensajeMemoria]] = {}
 
 # Límite de sesiones activas para evitar que la memoria crezca infinita
 MAX_SESIONES = 100
@@ -36,7 +37,7 @@ MAX_SESIONES = 100
 class PreguntaRequest(BaseModel):
     """Cuerpo de la petición desde la Edge Function."""
     pregunta: str
-    session_id: str | None = None
+    session_id: Optional[str] = None
     """ID de sesión opcional. Si no viene, se crea una nueva sesión.
     El frontend debe guardar este ID y enviarlo en peticiones siguientes
     para mantener el contexto de la conversación."""
@@ -46,8 +47,8 @@ class RespuestaResponse(BaseModel):
     """Cuerpo de la respuesta que retorna al Edge Function."""
     respuesta: str
     session_id: str
-    intenciones_detectadas: list[str]
-    errores: list[dict] | None = None
+    intenciones_detectadas: List[str]
+    errores: Optional[List[dict]] = None
 
 
 # --- Lifecycle ---
@@ -87,7 +88,7 @@ async def verificar_autenticacion(request: Request):
 
 # --- Gestión de sesiones ---
 
-def obtener_memoria_sesion(session_id: str | None) -> tuple[str, list[MensajeMemoria]]:
+def obtener_memoria_sesion(session_id: Optional[str]) -> tuple[str, List[MensajeMemoria]]:
     """Obtiene o crea una sesión.
     
     Retorna una tupla con (session_id, memoria_actual).
@@ -110,7 +111,7 @@ def obtener_memoria_sesion(session_id: str | None) -> tuple[str, list[MensajeMem
     return nuevo_id, _sesiones[nuevo_id]
 
 
-def guardar_memoria_sesion(session_id: str, memoria: list[MensajeMemoria]):
+def guardar_memoria_sesion(session_id: str, memoria: List[MensajeMemoria]):
     """Actualiza la memoria de una sesión después de procesar una pregunta."""
     _sesiones[session_id] = memoria
 
