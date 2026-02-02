@@ -26,7 +26,7 @@ Gemini no respondió), saltamos directamente al generador
 sin intentar consultar la base de datos.
 """
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, START, END
 from app.state import AgentState
 from app.classifier import clasificar_pregunta
 from app.query_executor import ejecutar_consultas, tiene_error_fatal
@@ -50,7 +50,7 @@ def decidir_después_de_clasificador(state: AgentState) -> str:
     return "ejecutor_consultas"
 
 
-def construir_grafo() -> StateGraph:
+def construir_grafo():
     """Construye y compila el grafo del agente.
     
     compile() convierte el grafo en un objeto ejecutable
@@ -63,29 +63,23 @@ def construir_grafo() -> StateGraph:
     grafo.add_node("ejecutor_consultas", ejecutar_consultas)
     grafo.add_node("generador_respuesta", generar_respuesta)
 
-    # --- Punto de entrada ---
-    grafo.set_entry_point("clasificador")
+    # --- Arista de entrada: START → clasificador ---
+    grafo.add_edge(START, "clasificador")
 
     # --- Arista condicional después del clasificador ---
-    # En lugar de una arista directa, usamos add_conditional_edge.
-    # El grafo llama a decidir_después_de_clasificador con el estado actual
-    # y ese retorna el nombre del siguiente nodo.
-    grafo.add_conditional_edge(
+    # La función decidir_después_de_clasificador retorna el nombre
+    # del siguiente nodo según si hay error fatal o no.
+    grafo.add_conditional_edges(
         "clasificador",
-        decidir_después_de_clasificador,
-        {
-            # Mapa de posibles retornos → nodo destino
-            "ejecutor_consultas": "ejecutor_consultas",
-            "generador_respuesta": "generador_respuesta"
-        }
+        decidir_después_de_clasificador
     )
 
     # --- Arista directa: ejecutor → generador ---
     # Después de las consultas, siempre generamos respuesta
     grafo.add_edge("ejecutor_consultas", "generador_respuesta")
 
-    # --- Punto final ---
-    grafo.set_finish_point("generador_respuesta")
+    # --- Arista final: generador → END ---
+    grafo.add_edge("generador_respuesta", END)
 
     return grafo.compile()
 
