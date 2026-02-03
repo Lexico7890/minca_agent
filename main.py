@@ -159,10 +159,20 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
 
     # 6. Guardar memoria actualizada
     # El generador de respuesta ya actualizó memoria en el estado.
-    # Reconstruimos los objetos MensajeMemoria desde los dicts del resultado.
-    memoria_actualizada = [
-        MensajeMemoria(**msg) for msg in resultado["memoria"]
-    ]
+    # resultado["memoria"] puede venir como lista de dicts o lista de objetos MensajeMemoria
+    # dependiendo de cómo LangGraph lo maneje internamente.
+    memoria_actualizada = []
+    for msg in resultado["memoria"]:
+        if isinstance(msg, MensajeMemoria):
+            # Ya es un objeto MensajeMemoria, usarlo directamente
+            memoria_actualizada.append(msg)
+        elif isinstance(msg, dict):
+            # Es un dict, convertirlo a MensajeMemoria
+            memoria_actualizada.append(MensajeMemoria(**msg))
+        else:
+            # Caso inesperado, logear y continuar
+            print(f"Tipo inesperado en memoria: {type(msg)}")
+    
     guardar_memoria_sesion(session_id, memoria_actualizada)
 
     # 7. Retornar respuesta
