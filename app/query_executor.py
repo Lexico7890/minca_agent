@@ -48,6 +48,9 @@ async def ejecutar_consultas(state: AgentState) -> AgentState:
         i for i in state.intenciones
         if i in HERRAMIENTAS
     ]
+    
+    # DEBUG
+    print(f"EJECUTOR - Intenciones a ejecutar: {intenciones_validas}")
 
     # Si ninguna intención tiene herramienta, registrar que no se encontró
     if not intenciones_validas:
@@ -58,14 +61,14 @@ async def ejecutar_consultas(state: AgentState) -> AgentState:
         })
         return state
 
-    # Crear las tareas de consulta
-    tareas = [HERRAMIENTAS[intencion](state) for intencion in intenciones_validas]
-
-    # Ejecutar en paralelo si hay más de una
-    if len(tareas) == 1:
-        await tareas[0]
-    else:
-        await asyncio.gather(*tareas)
+    # Ejecutar las consultas SECUENCIALMENTE para que los cambios en state se acumulen.
+    # En paralelo, cada función recibe una copia del estado y los cambios no se propagan.
+    for intencion in intenciones_validas:
+        herramienta = HERRAMIENTAS[intencion]
+        state = await herramienta(state)  # ← Actualizar state con el resultado
+    
+    # DEBUG
+    print(f"EJECUTOR - Después de consultas, contexto_db tiene {len(state.contexto_db)} bloques")
 
     # Verificar que al menos una consulta retornó datos
     if not state.contexto_db:
