@@ -157,35 +157,31 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     # y retorna el estado final como diccionario.
     resultado = await agent.ainvoke(estado_inicial)
     
-    # DEBUG: Log para ver qué está retornando el grafo
-    print(f"DEBUG - Tipo de resultado: {type(resultado)}")
-    print(f"DEBUG - Keys en resultado: {resultado.keys() if isinstance(resultado, dict) else 'No es dict'}")
-    print(f"DEBUG - Resultado completo: {resultado}")
+    # IMPORTANTE: LangGraph solo retorna los campos que cambiaron durante
+    # la ejecución. Los campos con valores por defecto que nunca se modifican
+    # no aparecen en el resultado. Usamos .get() con defaults.
 
     # 6. Guardar memoria actualizada
     # El generador de respuesta ya actualizó memoria en el estado.
     # resultado["memoria"] puede venir como lista de dicts o lista de objetos MensajeMemoria
     # dependiendo de cómo LangGraph lo maneje internamente.
     memoria_actualizada = []
-    for msg in resultado["memoria"]:
+    for msg in resultado.get("memoria", []):
         if isinstance(msg, MensajeMemoria):
             # Ya es un objeto MensajeMemoria, usarlo directamente
             memoria_actualizada.append(msg)
         elif isinstance(msg, dict):
             # Es un dict, convertirlo a MensajeMemoria
             memoria_actualizada.append(MensajeMemoria(**msg))
-        else:
-            # Caso inesperado, logear y continuar
-            print(f"Tipo inesperado en memoria: {type(msg)}")
     
     guardar_memoria_sesion(session_id, memoria_actualizada)
 
     # 7. Retornar respuesta
     return RespuestaResponse(
-        respuesta=resultado["respuesta_final"],
+        respuesta=resultado.get("respuesta_final", "No se pudo generar una respuesta"),
         session_id=session_id,
-        intenciones_detectadas=resultado["intenciones"],  # El campo en state se llama "intenciones"
-        errores=resultado["errores"] if resultado["errores"] else None
+        intenciones_detectadas=resultado.get("intenciones", []),
+        errores=resultado.get("errores", None)
     )
 
 
