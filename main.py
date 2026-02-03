@@ -179,7 +179,7 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     return RespuestaResponse(
         respuesta=resultado["respuesta_final"],
         session_id=session_id,
-        intenciones_detectadas=resultado["intenciones"],
+        intenciones_detectadas=resultado["intenciones"],  # El campo en state se llama "intenciones"
         errores=resultado["errores"] if resultado["errores"] else None
     )
 
