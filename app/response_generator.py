@@ -112,6 +112,13 @@ def generar_respuesta(state: AgentState) -> AgentState:
     
     En todos los casos, actualiza la memoria de conversación.
     """
+    
+    # DEBUG
+    print(f"GENERADOR - Intenciones: {state.intenciones}")
+    print(f"GENERADOR - Contexto DB tiene {len(state.contexto_db)} bloques")
+    for bloque in state.contexto_db:
+        print(f"  - {bloque['fuente']}: {len(bloque['datos'])} registros")
+    print(f"GENERADOR - Errores: {state.errores}")
 
     # --- Caso 1: Error fatal ---
     if tiene_error_fatal(state):
