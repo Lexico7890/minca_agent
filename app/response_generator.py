@@ -157,6 +157,7 @@ def generar_respuesta(state: AgentState) -> AgentState:
         state.respuesta_final = respuesta
 
     except RuntimeError as e:
+        print(f"ERROR en generador_respuesta: {str(e)}")  # DEBUG
         state.respuesta_final = (
             "Tuve problema al generar la respuesta, pero las consultas sí se completaron. "
             "Por favor, intenta de nuevo."
@@ -164,6 +165,17 @@ def generar_respuesta(state: AgentState) -> AgentState:
         state.errores.append({
             "nodo": "generador_respuesta",
             "mensaje": str(e),
+            "recuperable": True
+        })
+    except Exception as e:
+        print(f"ERROR INESPERADO en generador_respuesta: {type(e).__name__}: {str(e)}")  # DEBUG
+        state.respuesta_final = (
+            "Tuve problema al generar la respuesta, pero las consultas sí se completaron. "
+            "Por favor, intenta de nuevo."
+        )
+        state.errores.append({
+            "nodo": "generador_respuesta",
+            "mensaje": f"{type(e).__name__}: {str(e)}",
             "recuperable": True
         })
 

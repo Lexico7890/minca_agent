@@ -30,7 +30,7 @@ class GeminiClient:
 
         # Modelo que usamos. gemini-2.0-flash es el más rápido
         # y tiene capa gratuita generosa.
-        self.model = "gemini-2.0-flash"
+        self.model = "gemini-2.5-flash"
 
     def llamar(
         self,
