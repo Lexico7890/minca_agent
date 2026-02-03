@@ -1,49 +1,33 @@
-"""Estado del grafo de LangGraph.
+"""Estado del grafo de LangGraph - VERSIÓN CORREGIDA.
 
-Este es el objeto que viaja por todos los nodos del grafo.
-Cada nodo lo recibe, lo puede modificar, y lo pasa al siguiente.
-Es el único mecanismo de comunicación entre nodos.
+IMPORTANTE: LangGraph con Pydantic BaseModel tiene problemas cuando
+mut as listas/dicts directamente (con .append()). La solución es usar
+Annotated con operator.add, que le dice a LangGraph cómo "mergear"
+los cambios entre nodos.
 
-DISEÑO IMPORTANTE:
-- "memoria" almacena el historial de la conversación actual.
-  Esto permite que el agente tenga contexto de preguntas anteriores
-  dentro de la misma sesión.
-- "errores" es una lista, no un solo string. Esto permite que
-  si un nodo falla, el grafo pueda seguir con otros nodos
-  y reportar todos los errores al final.
-- "reintentos" permite que el grafo reintente un nodo
-  automáticamente si falla por un error transitorio.
-- La estructura ya tiene campos para operaciones de escritura
-  que implementaremos después (tipo_operacion, confirmacion_usuario).
+Con esto, cuando un nodo retorna {"contexto_db": [nuevo_item]},
+LangGraph automáticamente hace contexto_db += [nuevo_item] en lugar
+de reemplazar la lista completa.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import List, Dict, Annotated
 from enum import Enum
+import operator
 
 
 # --- Tipos de operación que soportará el agente en el futuro ---
 
 class TipoOperacion(str, Enum):
-    """Tipos de operaciones que puede realizar el agente.
-    
-    Por ahora solo implementamos LECTURA.
-    Las demás se agregan cuando estemos listos para escritura.
-    """
+    """Tipo de operación que el usuario quiere hacer."""
     LECTURA = "lectura"
-    INSERTAR = "insertar"       # Futuro
-    ACTUALIZAR = "actualizar"   # Futuro
-    ELIMINAR = "eliminar"       # Futuro
+    INSERTAR = "insertar"
+    ACTUALIZAR = "actualizar"
+    ELIMINAR = "eliminar"
 
-
-# --- Estructura de un mensaje de memoria ---
 
 class MensajeMemoria(BaseModel):
-    """Un mensaje individual en el historial de la conversación.
-    
-    rol: "usuario" para lo que dijo el usuario, "agente" para la respuesta.
-    contenido: el texto del mensaje.
-    """
+    """Un mensaje individual en el historial de la conversación."""
     rol: str       # "usuario" o "agente"
     contenido: str
 
@@ -53,116 +37,29 @@ class MensajeMemoria(BaseModel):
 class AgentState(BaseModel):
     """Estado completo que fluye por todos los nodos del grafo.
     
-    Se divide en secciones lógicas para que sea fácil entender
-    qué parte del pipeline modifica qué campo.
+    IMPORTANTE: Los campos con Annotated[List[X], operator.add] se
+    acumulan entre nodos. Si un nodo retorna {"errores": [nuevo_error]},
+    LangGraph hace state.errores += [nuevo_error] automáticamente.
     """
 
-    # =========================================================
-    # ENTRADA
-    # =========================================================
+    # === ENTRADA ===
     pregunta_actual: str = ""
-    """La pregunta que el usuario acaba de hacer."""
-
-    # =========================================================
-    # MEMORIA DE CONVERSACIÓN
-    # =========================================================
-    memoria: List[MensajeMemoria] = Field(default_factory=list)
-    """Historial de la conversación actual (dentro de la misma sesión).
+    memoria: Annotated[List[MensajeMemoria], operator.add] = Field(default_factory=list)
     
-    Cuando el usuario hace una nueva pregunta, antes de procesarla
-    agregamos el historial previo como contexto. Esto permite que
-    el agente entienda referencias como "el mismo repuesto del que
-    hablamos antes" o "y cuántas garantías tiene ese".
-    
-    Se limita a los últimos N mensajes para no exceder el contexto del modelo.
-    """
-
-    # =========================================================
-    # CLASIFICACIÓN
-    # =========================================================
+    # === CLASIFICACIÓN ===
     intenciones: List[str] = Field(default_factory=list)
-    """Intenciones detectadas por el clasificador.
-    
-    Ejemplos: ["inventario"], ["garantias", "inventario"], ["no_reconocida"]
-    """
-
     tipo_operacion: TipoOperacion = TipoOperacion.LECTURA
-    """Tipo de operación que detectó el clasificador.
     
-    Por ahora siempre será LECTURA. Cuando implementemos escritura,
-    el clasificador también detectará si el usuario quiere insertar,
-    actualizar o eliminar.
-    """
-
-    # =========================================================
-    # CONTEXTO DE CONSULTAS
-    # =========================================================
-    contexto_db: List[Dict] = Field(default_factory=list)
-    """Resultados de las consultas a PostgreSQL.
+    # === CONTEXTO DE DATOS ===
+    contexto_db: Annotated[List[Dict], operator.add] = Field(default_factory=list)
+    contexto_rag: Annotated[List[Dict], operator.add] = Field(default_factory=list)
     
-    Cada elemento tiene:
-    - "fuente": nombre de la categoría consultada
-    - "datos": lista de filas retornadas como diccionarios
+    # === MANEJO DE ERRORES ===
+    errores: Annotated[List[Dict], operator.add] = Field(default_factory=list)
+    reintentos_restantes: int = 3
     
-    Ejemplo:
-    [
-        {
-            "fuente": "inventario",
-            "datos": [
-                {"repuesto": "Filtro X", "cantidad": 15, "localizacion": "Bodega A"},
-                {"repuesto": "Filtro Y", "cantidad": 3, "localizacion": "Bodega B"}
-            ]
-        }
-    ]
-    """
-
-    contexto_rag: List[Dict] = Field(default_factory=list)
-    """Resultados de búsqueda semántica contra PDFs.
-    
-    Se implementará en la siguiente fase. El campo existe ahora
-    para que la estructura del estado no cambie cuando lo agregues.
-    """
-
-    # =========================================================
-    # OPERACIONES DE ESCRITURA (futuro)
-    # =========================================================
+    # === FUTURO: ESCRITURA ===
     confirmacion_usuario: bool = False
-    """Si el usuario confirmó una operación de escritura.
     
-    Cuando el agente detecte que el usuario quiere modificar datos,
-    primero debe pedir confirmación antes de ejecutar. Este campo
-    tracking ese estado de confirmación.
-    """
-
-    # =========================================================
-    # CONTROL DE FLUJO Y ERRORES
-    # =========================================================
-    errores: List[Dict] = Field(default_factory=list)
-    """Lista de errores que ocurrieron durante el procesamiento.
-    
-    Cada error tiene:
-    - "nodo": en qué nodo del grafo ocurrió
-    - "mensaje": descripción del error
-    - "recuperable": si el grafo puede seguir sin ese resultado
-    
-    Ejemplo:
-    [{"nodo": "consulta_inventario", "mensaje": "timeout", "recuperable": True}]
-    
-    Un error recuperable significa que esa consulta falló pero las demás
-    siguieron adelante. El modelo puede generar una respuesta parcial.
-    Un error no recuperable detiene todo.
-    """
-
-    reintentos_restantes: int = 2
-    """Cantidad de reintentos disponibles para el nodo actual.
-    
-    Si un nodo falla con un error recuperable (como timeout),
-    el grafo puede intentarlo de nuevo hasta que llegue a 0.
-    Se resetea para cada nodo.
-    """
-
-    # =========================================================
-    # RESPUESTA FINAL
-    # =========================================================
+    # === SALIDA ===
     respuesta_final: str = ""
-    """Texto humanizado que va a convertirse en voz para el usuario."""
