@@ -18,7 +18,7 @@ DISEÑO IMPORTANTE:
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict
 from enum import Enum
 
 
@@ -66,7 +66,7 @@ class AgentState(BaseModel):
     # =========================================================
     # MEMORIA DE CONVERSACIÓN
     # =========================================================
-    memoria: list[MensajeMemoria] = Field(default_factory=list)
+    memoria: List[MensajeMemoria] = Field(default_factory=list)
     """Historial de la conversación actual (dentro de la misma sesión).
     
     Cuando el usuario hace una nueva pregunta, antes de procesarla
@@ -80,7 +80,7 @@ class AgentState(BaseModel):
     # =========================================================
     # CLASIFICACIÓN
     # =========================================================
-    intenciones: list[str] = Field(default_factory=list)
+    intenciones: List[str] = Field(default_factory=list)
     """Intenciones detectadas por el clasificador.
     
     Ejemplos: ["inventario"], ["garantias", "inventario"], ["no_reconocida"]
@@ -97,7 +97,7 @@ class AgentState(BaseModel):
     # =========================================================
     # CONTEXTO DE CONSULTAS
     # =========================================================
-    contexto_db: list[dict] = Field(default_factory=list)
+    contexto_db: List[Dict] = Field(default_factory=list)
     """Resultados de las consultas a PostgreSQL.
     
     Cada elemento tiene:
@@ -116,7 +116,7 @@ class AgentState(BaseModel):
     ]
     """
 
-    contexto_rag: list[dict] = Field(default_factory=list)
+    contexto_rag: List[Dict] = Field(default_factory=list)
     """Resultados de búsqueda semántica contra PDFs.
     
     Se implementará en la siguiente fase. El campo existe ahora
@@ -137,7 +137,7 @@ class AgentState(BaseModel):
     # =========================================================
     # CONTROL DE FLUJO Y ERRORES
     # =========================================================
-    errores: list[dict] = Field(default_factory=list)
+    errores: List[Dict] = Field(default_factory=list)
     """Lista de errores que ocurrieron durante el procesamiento.
     
     Cada error tiene:
