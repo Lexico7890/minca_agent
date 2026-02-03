@@ -156,6 +156,11 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     # ainvoke() ejecuta todos los nodos según la estructura del grafo
     # y retorna el estado final como diccionario.
     resultado = await agent.ainvoke(estado_inicial)
+    
+    # DEBUG: Log para ver qué está retornando el grafo
+    print(f"DEBUG - Tipo de resultado: {type(resultado)}")
+    print(f"DEBUG - Keys en resultado: {resultado.keys() if isinstance(resultado, dict) else 'No es dict'}")
+    print(f"DEBUG - Resultado completo: {resultado}")
 
     # 6. Guardar memoria actualizada
     # El generador de respuesta ya actualizó memoria en el estado.
