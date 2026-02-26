@@ -23,7 +23,7 @@ async def consultar_inventario(state: AgentState) -> AgentState:
     """Consulta el inventario actual con información del repuesto y localización."""
     try:
         async with get_connection() as conn:
-            rows = await conn.execute("""
+            cursor = await conn.execute("""
                 SELECT
                     r.referencia,
                     r.nombre AS nombre_repuesto,
@@ -43,7 +43,8 @@ async def consultar_inventario(state: AgentState) -> AgentState:
                 JOIN localizacion l ON i.id_localizacion = l.id_localizacion
                 ORDER BY l.nombre, r.nombre
                 LIMIT 300
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas = [
                 "referencia", "nombre_repuesto", "marca", "tipo",
@@ -68,7 +69,7 @@ async def consultar_garantias(state: AgentState) -> AgentState:
     """Consulta garantías con repuesto, localización y usuario que reportó."""
     try:
         async with get_connection() as conn:
-            rows = await conn.execute("""
+            cursor = await conn.execute("""
                 SELECT
                     g.id_garantia::text,
                     g.referencia_repuesto,
@@ -90,7 +91,8 @@ async def consultar_garantias(state: AgentState) -> AgentState:
                 LEFT JOIN usuarios t ON g.id_tecnico_asociado = t.id_usuario
                 ORDER BY g.created_at DESC
                 LIMIT 150
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas = [
                 "id_garantia", "referencia_repuesto", "nombre_repuesto",
@@ -100,6 +102,9 @@ async def consultar_garantias(state: AgentState) -> AgentState:
                 "fecha_creacion", "fecha_actualizacion"
             ]
             datos = [dict(zip(columnas, row)) for row in rows]
+            
+            # DEBUG
+            print(f"GARANTIAS - Registros encontrados: {len(datos)}")
 
         state.contexto_db.append({"fuente": "garantias", "datos": datos})
 
@@ -117,7 +122,7 @@ async def consultar_movimientos_tecnicos(state: AgentState) -> AgentState:
     """Consulta movimientos técnicos con repuesto, técnico y orden."""
     try:
         async with get_connection() as conn:
-            rows = await conn.execute("""
+            cursor = await conn.execute("""
                 SELECT
                     r.referencia,
                     r.nombre AS nombre_repuesto,
@@ -137,7 +142,8 @@ async def consultar_movimientos_tecnicos(state: AgentState) -> AgentState:
                 JOIN usuarios t ON mt.id_tecnico_asignado = t.id_usuario
                 ORDER BY mt.fecha DESC
                 LIMIT 150
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas = [
                 "referencia", "nombre_repuesto", "concepto", "tipo",
@@ -163,7 +169,7 @@ async def consultar_solicitudes(state: AgentState) -> AgentState:
     try:
         async with get_connection() as conn:
             # Consulta principal de solicitudes
-            rows = await conn.execute("""
+            cursor = await conn.execute("""
                 SELECT
                     s.id_solicitud::text,
                     s.estado,
@@ -186,7 +192,8 @@ async def consultar_solicitudes(state: AgentState) -> AgentState:
                 LEFT JOIN usuarios ur ON s.id_usuario_receptor = ur.id_usuario
                 ORDER BY s.fecha_creacion DESC
                 LIMIT 100
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas = [
                 "id_solicitud", "estado", "origen", "destino",
@@ -230,7 +237,8 @@ async def consultar_conteos(state: AgentState) -> AgentState:
                 JOIN usuarios u ON rc.id_usuario = u.id_usuario
                 ORDER BY rc.created_at DESC
                 LIMIT 50
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas_conteos = [
                 "id_conteo", "tipo", "localizacion", "usuario",
@@ -254,7 +262,8 @@ async def consultar_conteos(state: AgentState) -> AgentState:
                 WHERE dc.diferencia != 0
                 ORDER BY ABS(dc.diferencia) DESC
                 LIMIT 100
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas_detalles = [
                 "id_conteo", "referencia", "nombre_repuesto",
@@ -279,7 +288,7 @@ async def consultar_repuestos(state: AgentState) -> AgentState:
     """Consulta el catálogo de repuestos con toda su información."""
     try:
         async with get_connection() as conn:
-            rows = await conn.execute("""
+            cursor = await conn.execute("""
                 SELECT
                     referencia,
                     nombre,
@@ -292,7 +301,8 @@ async def consultar_repuestos(state: AgentState) -> AgentState:
                 FROM repuestos
                 ORDER BY nombre
                 LIMIT 300
-            """).fetchall()
+            """)
+            rows = await cursor.fetchall()
 
             columnas = [
                 "referencia", "nombre", "marca", "tipo",

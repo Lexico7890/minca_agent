@@ -26,53 +26,63 @@ def tiene_error_fatal(state: AgentState) -> bool:
     return any(not e["recuperable"] for e in state.errores)
 
 
-async def ejecutar_consultas(state: AgentState) -> AgentState:
+async def ejecutar_consultas(state: AgentState):
     """Ejecuta las consultas según las intenciones detectadas.
     
-    Este nodo es donde LangGraph nos da valor real:
-    podemos despachar múltiples consultas en paralelo y
-    combinar los resultados en un solo estado, sin tener
-    que manejar esa lógica manualmente fuera del grafo.
+    IMPORTANTE: Este nodo retorna un dict con los campos actualizados,
+    no el estado completo. Así LangGraph puede mergear los cambios correctamente.
     """
 
     # Si hay error fatal, no seguimos
     if tiene_error_fatal(state):
-        return state
+        return {}
 
     # Si la pregunta no fue reconocida, no hay nada que consultar
     if state.intenciones == ["no_reconocida"]:
-        return state
+        return {}
 
     # Filtrar solo las intenciones que tienen herramienta disponible
     intenciones_validas = [
         i for i in state.intenciones
         if i in HERRAMIENTAS
     ]
+    
+    # DEBUG
+    print(f"EJECUTOR - Intenciones a ejecutar: {intenciones_validas}")
 
-    # Si ninguna intención tiene herramienta, registrar que no se encontró
+    # Si ninguna intención tiene herramienta
     if not intenciones_validas:
-        state.errores.append({
-            "nodo": "ejecutor_consultas",
-            "mensaje": f"No hay herramientas para las intenciones detectadas: {state.intenciones}",
-            "recuperable": True
-        })
-        return state
+        return {
+            "errores": state.errores + [{
+                "nodo": "ejecutor_consultas",
+                "mensaje": f"No hay herramientas para las intenciones detectadas: {state.intenciones}",
+                "recuperable": True
+            }]
+        }
 
-    # Crear las tareas de consulta
-    tareas = [HERRAMIENTAS[intencion](state) for intencion in intenciones_validas]
-
-    # Ejecutar en paralelo si hay más de una
-    if len(tareas) == 1:
-        await tareas[0]
-    else:
-        await asyncio.gather(*tareas)
-
-    # Verificar que al menos una consulta retornó datos
-    if not state.contexto_db:
-        state.errores.append({
-            "nodo": "ejecutor_consultas",
-            "mensaje": "Ninguna consulta retornó datos",
-            "recuperable": True  # El modelo puede responder diciendo que no hay datos
-        })
-
-    return state
+    # Ejecutar las consultas y acumular resultados
+    contexto_acumulado = []
+    errores_acumulados = list(state.errores)  # Copiar errores existentes
+    
+    for intencion in intenciones_validas:
+        herramienta = HERRAMIENTAS[intencion]
+        # Cada herramienta recibe el estado ORIGINAL y retorna un estado NUEVO
+        resultado = await herramienta(state)
+        
+        # Agregar los bloques de contexto que retornó esta herramienta
+        contexto_acumulado.extend(resultado.contexto_db)
+        
+        # Agregar errores nuevos si los hay
+        if resultado.errores:
+            errores_acumulados.extend(resultado.errores)
+    
+    # DEBUG
+    print(f"EJECUTOR - Contexto acumulado: {len(contexto_acumulado)} bloques")
+    for bloque in contexto_acumulado:
+        print(f"  EJECUTOR - {bloque['fuente']}: {len(bloque['datos'])} registros")
+    
+    # Retornar SOLO los campos que cambiaron
+    return {
+        "contexto_db": contexto_acumulado,
+        "errores": errores_acumulados
+    }
