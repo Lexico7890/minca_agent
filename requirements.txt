@@ -1,9 +1,27 @@
+# LangGraph y estado
 langgraph==0.3.0
 pydantic==2.10.0
+
+# Base de datos
 psycopg[binary]==3.2.3
 psycopg-pool==3.2.0
+
+# FastAPI
 fastapi==0.115.0
 uvicorn==0.34.0
+
+# Utilidades
 python-dotenv==1.0.0
-groq==0.11.0
+
+# LLM Providers
+groq==0.14.0
+httpx==0.27.2
 google-genai==1.5.0
+
+# Dependencias específicas para evitar conflictos
+anyio==4.6.2.post1
+certifi==2024.12.14
+h11==0.14.0
+httpcore==1.0.7
+idna==3.10
+sniffio==1.3.1
