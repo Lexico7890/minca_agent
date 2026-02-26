@@ -222,7 +222,8 @@ def generar_respuesta(state: AgentState) -> AgentState:
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
             temperatura=0.4,  # Un poco más alto que la clasificación para sonar natural
-            max_tokens=1024
+            max_tokens=1024,
+            use_quality_model=True
         )
 
         state.respuesta_final = respuesta
