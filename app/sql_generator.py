@@ -27,7 +27,6 @@ roles(id_rol,nombre,permissions J)
 inventario(id_repuesto>repuestos,id_localizacion>localizacion,cantidad I,cantidad_minima I,posicion,nuevo_hasta T?)
 garantias(id_garantia,id_repuesto>repuestos,estado,motivo_falla,comentarios_resolucion,orden,solicitante,kilometraje I,id_localizacion>localizacion,id_usuario_reporta>usuarios,id_tecnico_asociado>usuarios?,created_at T,updated_at T)
 movimientos_tecnicos(id_repuesto>repuestos,concepto,tipo,cantidad I,numero_orden,descargada B,id_localizacion>localizacion,id_usuario_responsable>usuarios,id_tecnico_asignado>usuarios,fecha T)
-detalles_solicitud(id_solicitud>solicitudes,id_repuesto>repuestos,cantidad_solicitada I,cantidad_despachada I,cantidad_recibida I)
 registro_conteo(id_conteo,tipo,id_localizacion>localizacion,id_usuario>usuarios,total_items_auditados I,total_diferencia_encontrada I,total_items_pq I,observaciones,created_at T)
 detalles_conteo(id_conteo>registro_conteo,id_repuesto>repuestos,cantidad_sistema I,cantidad_csa I,diferencia I,cantidad_pq I)
 usuarios_localizacion(id_usuario>usuarios,id_localizacion>localizacion)
@@ -161,6 +160,10 @@ def _inferir_intenciones(sql: str) -> list[str]:
         "registro_conteo": "conteos",
         "detalles_conteo": "conteos",
         "repuestos": "repuestos",
+        "localizacion": "localizacion",
+        "usurios": "usurios",
+        "roles": "roles",
+        "usuarios_localizacion": "usuarios_localizacion"
     }
     for table, intencion in table_map.items():
         if table in sql_lower and intencion not in intenciones:
@@ -261,6 +264,7 @@ def generar_sql(state: AgentState) -> dict:
             "intenciones": _inferir_intenciones(sql),
             "sql_error_anterior": "",  # Limpiar error anterior si hubo éxito
         }
+        print("result SQL: ", result)
 
         # Si es reintento, decrementar contador
         if state.sql_error_anterior:
