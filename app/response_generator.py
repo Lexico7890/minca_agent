@@ -69,6 +69,18 @@ RESPUESTA_NO_RECONOCIDA = (
     "¿Podrías reformular tu pregunta con un poco más de detalle?"
 )
 
+CACHE_RESPUESTAS = {}
+
+def get_cache_key(pregunta: str, contexto_size: int) -> str:
+    """Genera una key para el cache basada en la pregunta y el contexto."""
+    # Solo cachear si no hay contexto de DB (preguntas generales)
+    if contexto_size > 0:
+        return None
+    
+    # Hash de la pregunta normalizada
+    pregunta_norm = pregunta.lower().strip()
+    return hashlib.md5(pregunta_norm.encode()).hexdigest()
+
 
 def es_saludo(pregunta: str) -> bool:
     """Detecta si la pregunta del usuario es un saludo."""
@@ -204,6 +216,15 @@ def generar_respuesta(state: AgentState) -> AgentState:
         _actualizar_memoria(state)
         return state
 
+    # Intentar obtener del cache (solo para preguntas sin datos de DB)
+    if not state.contexto_db and not state.contexto_rag:
+        cache_key = get_cache_key(state.pregunta_actual, 0)
+        if cache_key and cache_key in CACHE_RESPUESTAS:
+            print(f"[CACHE] Respuesta encontrada en cache")
+            state.respuesta_final = CACHE_RESPUESTAS[cache_key]
+            _actualizar_memoria(state)
+            return state
+
     # --- Caso 3 y 4: Generar respuesta con Gemini ---
     try:
         contexto_memoria = construir_contexto_memoria(state)
@@ -225,6 +246,10 @@ def generar_respuesta(state: AgentState) -> AgentState:
             max_tokens=1024,
             use_quality_model=True
         )
+
+        if cache_key:
+            CACHE_RESPUESTAS[cache_key] = respuesta
+            print(f"[CACHE] Respuesta guardada en cache")
 
         state.respuesta_final = respuesta
 
