@@ -1,9 +1,9 @@
-"""Cliente LLM híbrido con fallback automático y métricas de uso.
+"""Cliente LLM híbrido - VERSIÓN FINAL OPTIMIZADA.
 
 CAMBIOS:
-- Gemini usa modelo ESTABLE (no experimental)
-- Contador de requests para debugging
-- Logs claros de consumo
+- Gemini usa gemini-2.5-flash (modelo estable que funciona)
+- Logs de consumo de tokens
+- Rate limiting mejorado
 """
 
 import os
@@ -18,28 +18,22 @@ class Provider(str, Enum):
 
 
 class LLMClient:
-    """Cliente LLM con fallback automático y monitoreo de uso."""
+    """Cliente LLM con fallback automático."""
 
     def __init__(self):
         self.providers = self._init_providers()
-        # Contadores de requests para debugging
         self.request_counts = {}
         
         if not self.providers:
-            raise ValueError(
-                "No hay proveedores de LLM configurados. "
-                "Necesitas al menos GROQ_API_KEY o GEMINI_API_KEY"
-            )
+            raise ValueError("No hay proveedores configurados")
         
-        # Inicializar contadores
         for p in self.providers:
             self.request_counts[p['name']] = 0
         
-        print(f"[LLM] Proveedores configurados: {[p['name'] for p in self.providers]}")
-        print(f"[LLM] Prioridad: {self.providers[0]['name']}")
+        print(f"[LLM] Proveedores: {[p['name'] for p in self.providers]}")
 
     def _init_providers(self) -> List[Dict]:
-        """Inicializa los proveedores disponibles."""
+        """Inicializa proveedores."""
         providers = []
         
         # 1. GROQ
@@ -54,11 +48,11 @@ class LLMClient:
                     "model_quality": "llama-3.3-70b-versatile",
                     "active": True
                 })
-                print("[LLM] ✓ Groq configurado (fast: 8b-instant, quality: 70b-versatile)")
+                print("[LLM] ✓ Groq OK")
             except Exception as e:
-                print(f"[LLM] ✗ Error con Groq: {e}")
+                print(f"[LLM] ✗ Groq error: {e}")
         
-        # 2. GEMINI - MODELO ESTABLE
+        # 2. GEMINI - MODELO CORRECTO
         gemini_key = os.getenv("GEMINI_API_KEY")
         if gemini_key:
             try:
@@ -66,14 +60,14 @@ class LLMClient:
                 providers.append({
                     "name": Provider.GEMINI,
                     "client": genai.Client(api_key=gemini_key),
-                    # CAMBIADO: usar modelo estable, no experimental
-                    "model_fast": "gemini-1.5-flash",
-                    "model_quality": "gemini-1.5-flash",
+                    # MODELO CORRECTO: gemini-2.5-flash
+                    "model_fast": "gemini-2.5-flash",
+                    "model_quality": "gemini-2.5-flash",
                     "active": True
                 })
-                print("[LLM] ✓ Gemini configurado (modelo: gemini-1.5-flash)")
+                print("[LLM] ✓ Gemini OK (modelo: gemini-2.5-flash)")
             except Exception as e:
-                print(f"[LLM] ✗ Error con Gemini: {e}")
+                print(f"[LLM] ✗ Gemini error: {e}")
         
         return providers
 
@@ -89,7 +83,9 @@ class LLMClient:
         """Llama a Groq."""
         model = provider["model_quality"] if use_quality_model else provider["model_fast"]
         
-        print(f"[Groq] Usando modelo: {model}")
+        # Estimar tokens de entrada (aproximado)
+        input_tokens = (len(prompt) + len(system_prompt or "")) // 4
+        print(f"[Groq] Modelo: {model}, Tokens entrada: ~{input_tokens}")
         
         messages = []
         if system_prompt:
@@ -104,7 +100,7 @@ class LLMClient:
         )
 
         if not response.choices:
-            raise RuntimeError("Groq: respuesta vacía")
+            raise RuntimeError("Groq: sin respuesta")
 
         return response.choices[0].message.content.strip()
 
@@ -122,7 +118,8 @@ class LLMClient:
         
         model = provider["model_quality"] if use_quality_model else provider["model_fast"]
         
-        print(f"[Gemini] Usando modelo: {model}")
+        input_tokens = (len(prompt) + len(system_prompt or "")) // 4
+        print(f"[Gemini] Modelo: {model}, Tokens entrada: ~{input_tokens}")
         
         contenido = []
         
@@ -130,7 +127,7 @@ class LLMClient:
             contenido.append(
                 types.Content(
                     role="user",
-                    parts=[types.Part(text=f"[INSTRUCCIONES DEL SISTEMA]\n{system_prompt}\n\n[MENSAJE]\n{prompt}")]
+                    parts=[types.Part(text=f"[INSTRUCCIONES]\n{system_prompt}\n\n[MENSAJE]\n{prompt}")]
                 )
             )
         else:
@@ -151,15 +148,16 @@ class LLMClient:
         )
 
         if not respuesta.text:
-            raise RuntimeError("Gemini: respuesta vacía")
+            raise RuntimeError("Gemini: sin respuesta")
 
         return respuesta.text.strip()
 
     def _is_rate_limit_error(self, error: Exception) -> bool:
-        """Detecta errores de límite."""
+        """Detecta rate limit."""
         error_msg = str(error).lower()
         return any(kw in error_msg for kw in [
-            "429", "quota", "rate_limit", "resource_exhausted", "too many"
+            "429", "quota", "rate_limit", "resource_exhausted", 
+            "too many", "tokens per minute", "tpm"
         ])
 
     def llamar(
@@ -170,7 +168,7 @@ class LLMClient:
         max_tokens: int = 2048,
         use_quality_model: bool = False
     ) -> str:
-        """Llama al LLM con fallback automático."""
+        """Llama al LLM con fallback."""
         
         last_error = None
         
@@ -179,10 +177,8 @@ class LLMClient:
                 continue
             
             try:
-                # Incrementar contador
                 self.request_counts[provider['name']] += 1
-                
-                print(f"[LLM] Request #{self.request_counts[provider['name']]} a {provider['name']}")
+                print(f"[LLM] Request #{self.request_counts[provider['name']]} → {provider['name']}")
                 
                 if provider["name"] == Provider.GROQ:
                     return self._llamar_groq(
@@ -197,21 +193,21 @@ class LLMClient:
                 
             except Exception as e:
                 last_error = e
-                print(f"[LLM] Error en {provider['name']}: {str(e)[:200]}")
+                error_preview = str(e)[:150]
+                print(f"[LLM] Error en {provider['name']}: {error_preview}")
                 
                 if self._is_rate_limit_error(e):
                     provider["active"] = False
-                    print(f"[LLM] {provider['name']} límite alcanzado (requests usados: {self.request_counts[provider['name']]})")
-                    print(f"[LLM] Intentando siguiente proveedor...")
+                    print(f"[LLM] {provider['name']} límite alcanzado. Fallback activado.")
                     if i < len(self.providers) - 1:
                         continue
                 else:
                     raise RuntimeError(f"Error en {provider['name']}: {str(e)}") from e
         
         if last_error and self._is_rate_limit_error(last_error):
-            raise RuntimeError("Todos los proveedores alcanzaron sus límites")
+            raise RuntimeError("Todos los proveedores alcanzaron límites")
         else:
-            raise RuntimeError(f"Error en todos los proveedores: {str(last_error)}")
+            raise RuntimeError(f"Error: {str(last_error)}")
 
 
 gemini = LLMClient()
