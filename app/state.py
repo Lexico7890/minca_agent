@@ -58,8 +58,14 @@ class AgentState(BaseModel):
     errores: Annotated[List[Dict], operator.add] = Field(default_factory=list)
     reintentos_restantes: int = 3
     
+    # === SQL DINÁMICO ===
+    sql_generado: str = ""
+    sql_explicacion: str = ""
+    sql_reintentos: int = 2
+    sql_error_anterior: str = ""
+
     # === FUTURO: ESCRITURA ===
     confirmacion_usuario: bool = False
-    
+
     # === SALIDA ===
     respuesta_final: str = ""

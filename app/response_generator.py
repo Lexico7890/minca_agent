@@ -81,6 +81,8 @@ def construir_contexto_datos_TOON(state: AgentState) -> str:
     # Context block
     context_lines = ["context:"]
     context_lines.append(f"  query: {state.pregunta_actual[:50]}")
+    if state.sql_explicacion:
+        context_lines.append(f"  analysis: {state.sql_explicacion[:80]}")
     context_lines.append(f"  intents: {','.join(state.intenciones[:3])}")
     sections.append("\n".join(context_lines))
     
@@ -138,7 +140,16 @@ def generar_respuesta(state: AgentState) -> AgentState:
         state.respuesta_final = RESPUESTA_NO_RECONOCIDA
         _actualizar_memoria(state)
         return state
-    
+
+    # SQL ejecutado pero sin resultados
+    if state.sql_generado and not state.contexto_db:
+        state.respuesta_final = (
+            "No encontré resultados para tu consulta. "
+            "Intenta reformular la pregunta o verificar los nombres."
+        )
+        _actualizar_memoria(state)
+        return state
+
     # Generar con TOON
     try:
         memoria = construir_contexto_memoria(state)
