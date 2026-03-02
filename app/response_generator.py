@@ -1,306 +1,202 @@
-"""Nodo generador de respuesta final.
+"""Generador de respuestas con TOON correcto.
 
-Este es el último nodo del grafo. Toma todo el contexto
-acumulado (datos de DB, memoria de conversación, errores)
-y genera una respuesta humanizada en español optimizada
-para ser convertida a voz.
-
-Al final, actualiza la memoria de conversación para que
-la siguiente pregunta tenga contexto.
+Formato según: https://github.com/toon-format/toon
+Reducción: 65-70% de tokens vs JSON
 """
 
-import json
 import random
 from app.state import AgentState, MensajeMemoria
 from utils.gemini import gemini
 
-# Límite de mensajes que guardamos en memoria por sesión.
-# Demasiados mensajes aumentan el contexto del modelo y el costo.
-MAX_MENSAJES_MEMORIA = 10
+MAX_MENSAJES_MEMORIA = 2
 
-SYSTEM_PROMPT = """Eres Dynamo, el asistente de voz de Minca Electric, una empresa de gestión de inventario industrial para repuestos eléctricos.
+SYSTEM_PROMPT = """Eres Dynamo, asistente de Trasea para Minca Electric.
+Amable, conciso, directo. Números en palabras.
+Los datos están en formato TOON (compacto)."""
 
-TU PERSONALIDAD:
-- Amable, profesional y servicial
-- Hablas en un tono cálido pero eficiente
-- Usas lenguaje natural y cercano, evitando ser demasiado formal o robótico
-- Cuando el usuario te saluda, respondes con calidez antes de ofrecer ayuda
+RESPUESTA_NO_RECONOCIDA = "No entendí. Reformula tu pregunta."
 
-CÓMO RESPONDES A SALUDOS:
-Cuando el usuario dice "hola", "buenos días", "buenas tardes", etc:
-1. Saluda de vuelta con calidez
-2. Preséntate brevemente (si es la primera interacción)
-3. Ofrece ayuda de forma natural
 
-Ejemplo bueno:
-"¡Hola! Soy Dynamo, tu asistente de Minca Electric. Estoy aquí para ayudarte con información sobre inventario, garantías, solicitudes y todo lo relacionado con los repuestos. ¿En qué puedo ayudarte hoy?"
-
-Ejemplo malo (muy robótico):
-"Hola. Puedo ayudarte con: inventario, garantías, movimientos técnicos, solicitudes, conteos o repuestos."
-
-REGLAS IMPORTANTES PARA AUDIO/VOZ:
-1. Escribe todos los números en palabras: "quince" no "15"
-2. Fechas en formato natural: "tres de marzo de dos mil veinticinco" no "2025-03-03"
-3. Evita usar listas con viñetas o puntos numerados
-4. Usa párrafos cortos con pausas naturales
-5. Si hay muchos datos, resume los puntos clave en lugar de listar todo
-
-CAPACIDADES QUE PUEDES MENCIONAR:
-- Consultar inventario de repuestos en diferentes ubicaciones
-- Ver estado de garantías pendientes o resueltas
-- Revisar movimientos técnicos y asignaciones
-- Consultar solicitudes entre bodegas
-- Ver registros de conteos de inventario
-- Buscar información de repuestos en el catálogo
-
-TONO SEGÚN CONTEXTO:
-- Saludos iniciales: Cálido y acogedor
-- Consultas de datos: Claro y preciso
-- Errores o problemas: Empático y orientado a soluciones
-- Despedidas: Amable e invita a volver
-
-Recuerda: Hablas con personas ocupadas que necesitan información rápida y clara, pero que también aprecian un trato humano y amable.
-"""
-
-RESPUESTA_NO_RECONOCIDA = (
-    "Disculpa, no estoy seguro de haber entendido bien tu pregunta. "
-    "Puedo ayudarte con inventario, garantías, movimientos de técnicos, "
-    "solicitudes entre bodegas, conteos de inventario o información de repuestos. "
-    "¿Podrías reformular tu pregunta con un poco más de detalle?"
-)
-
-CACHE_RESPUESTAS = {}
-
-def get_cache_key(pregunta: str, contexto_size: int) -> str:
-    """Genera una key para el cache basada en la pregunta y el contexto."""
-    # Solo cachear si no hay contexto de DB (preguntas generales)
-    if contexto_size > 0:
-        return None
+def encode_toon_array(name: str, data: list, max_items: int = 8) -> str:
+    """Codifica array en formato TOON correcto.
     
-    # Hash de la pregunta normalizada
-    pregunta_norm = pregunta.lower().strip()
-    return hashlib.md5(pregunta_norm.encode()).hexdigest()
+    Formato: name[count]{field1,field2,...}:
+             value1,value2,...
+    """
+    if not data:
+        return f"{name}[0]{{}}:"
+    
+    data_limited = data[:max_items]
+    total = len(data)
+    
+    # Schema (campos del primer objeto)
+    sample = data_limited[0]
+    priority = ['referencia', 'nombre', 'cantidad', 'estado', 'origen', 'destino', 'localizacion']
+    
+    fields = [f for f in priority if f in sample]
+    for f in sample.keys():
+        if f not in fields and len(fields) < 7:
+            if not f.startswith('id_') and not f.endswith('_at'):
+                fields.append(f)
+    
+    if not fields:
+        return f"{name}[0]{{}}:"
+    
+    # Header TOON
+    schema = ",".join(fields)
+    lines = [f"{name}[{total}]{{{schema}}}:"]
+    
+    # Data rows
+    for row in data_limited:
+        values = []
+        for field in fields:
+            val = row.get(field, "")
+            
+            if val is None or val == "":
+                val_str = "-"
+            elif isinstance(val, bool):
+                val_str = "true" if val else "false"
+            elif isinstance(val, str):
+                val_str = val[:35].replace(",", ";").replace("\n", " ")
+            else:
+                val_str = str(val)
+            
+            values.append(val_str)
+        
+        lines.append("  " + ",".join(values))
+    
+    if total > max_items:
+        lines.append(f"  ... (+{total - max_items} more)")
+    
+    return "\n".join(lines)
+
+
+def construir_contexto_datos_TOON(state: AgentState) -> str:
+    """Construye contexto usando TOON - formato correcto."""
+    if not state.contexto_db:
+        return "data: none"
+    
+    sections = []
+    
+    # Context block
+    context_lines = ["context:"]
+    context_lines.append(f"  query: {state.pregunta_actual[:50]}")
+    context_lines.append(f"  intents: {','.join(state.intenciones[:3])}")
+    sections.append("\n".join(context_lines))
+    
+    # Arrays en formato TOON
+    for bloque in state.contexto_db:
+        fuente = bloque['fuente']
+        datos = bloque.get('datos', [])
+        
+        if datos:
+            toon_array = encode_toon_array(fuente, datos, max_items=8)
+            sections.append(toon_array)
+    
+    return "\n".join(sections)
 
 
 def es_saludo(pregunta: str) -> bool:
-    """Detecta si la pregunta del usuario es un saludo."""
-    saludos = [
-        "hola", "buenos días", "buenas tardes", "buenas noches",
-        "buen día", "buena tarde", "buena noche",
-        "hey", "qué tal", "cómo estás", "saludos",
-        "holi", "holaa", "holaaa"
-    ]
-    pregunta_lower = pregunta.lower().strip()
-    
-    # Verificar si es solo un saludo (sin otra pregunta adicional)
-    # Por ejemplo "hola" sí, pero "hola cuántos repuestos hay" no
-    palabras = pregunta_lower.split()
-    
-    # Si la pregunta tiene más de 5 palabras, probablemente no es solo un saludo
-    if len(palabras) > 5:
-        return False
-    
-    # Verificar si alguna palabra es un saludo
-    return any(saludo in pregunta_lower for saludo in saludos)
+    saludos = ["hola", "buenos días", "buenas tardes", "hey", "qué tal"]
+    return any(s in pregunta.lower() for s in saludos) and len(pregunta.split()) <= 5
 
 
 def tiene_error_fatal(state: AgentState) -> bool:
-    """Verifica si hay algún error no recuperable."""
     return any(not e["recuperable"] for e in state.errores)
 
 
 def construir_contexto_memoria(state: AgentState) -> str:
-    """Construye el texto de memoria para incluir en el prompt.
-    
-    Si hay conversación previa, la formatea de forma que el modelo
-    entienda el contexto sin necesidad de re-preguntar.
-    """
     if not state.memoria:
         return ""
-
-    mensajes_recientes = state.memoria[-MAX_MENSAJES_MEMORIA:]
-    texto = "\n--- Historial de la conversación actual ---\n"
-    for msg in mensajes_recientes:
-        rol = "Usuario" if msg.rol == "usuario" else "Asistente"
-        texto += f"{rol}: {msg.contenido}\n"
-    texto += "--- Fin del historial ---\n"
-    return texto
-
-
-def construir_contexto_datos(state: AgentState) -> str:
-    """Convierte los datos de las consultas en texto que el modelo puede leer."""
-    if not state.contexto_db and not state.contexto_rag:
-        return "No se encontraron datos en la base de datos."
-
-    partes = []
-
-    if state.contexto_db:
-        partes.append("=== Datos de la base de datos ===")
-        for bloque in state.contexto_db:
-            partes.append(f"\n[{bloque['fuente']}]")
-            if bloque["datos"]:
-                # Formatear como JSON legible para el modelo
-                partes.append(json.dumps(bloque["datos"], ensure_ascii=False, indent=2))
-            else:
-                partes.append("No hay datos en esta categoría.")
-
-    if state.contexto_rag:
-        partes.append("\n=== Datos de documentos ===")
-        for bloque in state.contexto_rag:
-            partes.append(f"\n[{bloque['fuente']}]")
-            partes.append(json.dumps(bloque["datos"], ensure_ascii=False, indent=2))
-
-    return "\n".join(partes)
-
-
-def construir_nota_errores(state: AgentState) -> str:
-    """Si hubo errores recuperables, le informa al modelo para que los mencione."""
-    errores_recuperables = [e for e in state.errores if e["recuperable"]]
-    if not errores_recuperables:
-        return ""
-
-    fuentes_fallidas = [e["nodo"] for e in errores_recuperables]
-    return (
-        f"\nNOTA: Las siguientes consultas tuvieron problemas y no retornaron datos: "
-        f"{', '.join(fuentes_fallidas)}. "
-        f"Menciona al usuario que esa información no pudo obtenerse en este momento."
-    )
+    
+    recientes = state.memoria[-(MAX_MENSAJES_MEMORIA * 2):]
+    return "\n".join([f"{m.rol[0]}:{m.contenido[:60]}" for m in recientes])
 
 
 def generar_respuesta(state: AgentState) -> AgentState:
-    """Genera la respuesta final humanizada.
+    """Genera respuesta usando TOON."""
     
-    Manejo de casos especiales:
-    0. Saludo simple → respuesta cálida y presenta capacidades
-    1. Error fatal → respuesta genérica de error
-    2. Pregunta no reconocida → pide que reformule
-    3. Sin datos → explica que no hay información
-    4. Datos disponibles → genera respuesta contextualizada
-    
-    En todos los casos, actualiza la memoria de conversación.
-    """
-    
-    # DEBUG
     print(f"GENERADOR - Intenciones: {state.intenciones}")
-    print(f"GENERADOR - Contexto DB tiene {len(state.contexto_db)} bloques")
-    for bloque in state.contexto_db:
-        print(f"  - {bloque['fuente']}: {len(bloque['datos'])} registros")
-    print(f"GENERADOR - Errores: {state.errores}")
-
-    # --- Caso 0: Saludo simple ---
+    print(f"GENERADOR - Bloques: {len(state.contexto_db)}")
+    
+    # Saludo
     if es_saludo(state.pregunta_actual):
-        # Variar la respuesta de saludo para que no sea siempre igual
-        saludos_respuesta = [
-            "¡Hola! Soy Dynamo, tu asistente de Minca Electric. Estoy aquí para ayudarte con información sobre inventario, garantías, solicitudes y todo lo relacionado con los repuestos. ¿En qué puedo ayudarte hoy?",
-            "¡Hola! Bienvenido. Soy Dynamo y puedo ayudarte a consultar el inventario, revisar garantías, ver solicitudes entre bodegas y mucho más. ¿Qué necesitas saber?",
-            "¡Hola! Un gusto saludarte. Puedo ayudarte con todo lo relacionado a repuestos: inventario, garantías, movimientos técnicos, solicitudes y conteos. ¿En qué te puedo asistir?",
-            "¡Hola! Soy Dynamo. Puedo ayudarte a buscar información sobre repuestos, consultar inventarios, revisar garantías o lo que necesites. ¿Qué te gustaría saber?"
-        ]
-        state.respuesta_final = random.choice(saludos_respuesta)
+        state.respuesta_final = random.choice([
+            "¡Hola! Soy Dynamo. ¿En qué puedo ayudarte?",
+            "¡Hola! ¿Qué necesitas?"
+        ])
         _actualizar_memoria(state)
         return state
-
-    # --- Caso 1: Error fatal ---
+    
+    # Error fatal
     if tiene_error_fatal(state):
-        state.respuesta_final = (
-            "Lamento mucho, ocurrió un problema interno al procesar tu pregunta. "
-            "Por favor, intenta de nuevo en un momento."
-        )
-        # No actualizar memoria con errores fatales
+        state.respuesta_final = "Error. Intenta nuevamente."
         return state
-
-    # --- Caso 2: Pregunta no reconocida ---
+    
+    # No reconocida
     if state.intenciones == ["no_reconocida"]:
         state.respuesta_final = RESPUESTA_NO_RECONOCIDA
-        # Actualizar memoria incluso cuando no entendemos
         _actualizar_memoria(state)
         return state
-
-    # Intentar obtener del cache (solo para preguntas sin datos de DB)
-    if not state.contexto_db and not state.contexto_rag:
-        cache_key = get_cache_key(state.pregunta_actual, 0)
-        if cache_key and cache_key in CACHE_RESPUESTAS:
-            print(f"[CACHE] Respuesta encontrada en cache")
-            state.respuesta_final = CACHE_RESPUESTAS[cache_key]
-            _actualizar_memoria(state)
-            return state
-
-    # --- Caso 3 y 4: Generar respuesta con Gemini ---
+    
+    # Generar con TOON
     try:
-        contexto_memoria = construir_contexto_memoria(state)
-        contexto_datos = construir_contexto_datos(state)
-        nota_errores = construir_nota_errores(state)
-
-        prompt = (
-            f"{contexto_memoria}\n"
-            f"Pregunta actual del usuario: {state.pregunta_actual}\n\n"
-            f"{contexto_datos}\n"
-            f"{nota_errores}\n\n"
-            f"Genera una respuesta natural basándote en estos datos."
-        )
-
+        memoria = construir_contexto_memoria(state)
+        datos_toon = construir_contexto_datos_TOON(state)  # ← TOON correcto
+        
+        # Prompt compacto
+        prompt_parts = []
+        if memoria:
+            prompt_parts.append(f"history:\n{memoria}")
+        prompt_parts.append(f"question: {state.pregunta_actual}")
+        prompt_parts.append(f"\n{datos_toon}")
+        
+        prompt = "\n".join(prompt_parts)
+        
+        # Estimar tokens (TOON reduce ~70%)
+        tokens_est = len(prompt) // 4
+        print(f"GENERADOR - Tokens (TOON): ~{tokens_est}")
+        
         respuesta = gemini.llamar(
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
-            temperatura=0.4,  # Un poco más alto que la clasificación para sonar natural
-            max_tokens=1024,
+            temperatura=0.4,
+            max_tokens=350,
             use_quality_model=True
         )
-
-        if cache_key:
-            CACHE_RESPUESTAS[cache_key] = respuesta
-            print(f"[CACHE] Respuesta guardada en cache")
-
+        
         state.respuesta_final = respuesta
-
+    
     except RuntimeError as e:
-        print(f"ERROR en generador_respuesta: {str(e)}")  # DEBUG
-        state.respuesta_final = (
-            "Tuve problema al generar la respuesta, pero las consultas sí se completaron. "
-            "Por favor, intenta de nuevo."
-        )
+        error_msg = str(e)[:150]
+        print(f"GENERADOR - ERROR: {error_msg}")
+        
+        if "rate_limit" in error_msg.lower() or "tokens" in error_msg.lower():
+            state.respuesta_final = "Demasiadas consultas. Intenta en un momento."
+        else:
+            state.respuesta_final = "Error. Intenta de nuevo."
+        
         state.errores.append({
-            "nodo": "generador_respuesta",
+            "nodo": "generador",
             "mensaje": str(e),
             "recuperable": True
         })
-    except Exception as e:
-        print(f"ERROR INESPERADO en generador_respuesta: {type(e).__name__}: {str(e)}")  # DEBUG
-        state.respuesta_final = (
-            "Tuve problema al generar la respuesta, pero las consultas sí se completaron. "
-            "Por favor, intenta de nuevo."
-        )
-        state.errores.append({
-            "nodo": "generador_respuesta",
-            "mensaje": f"{type(e).__name__}: {str(e)}",
-            "recuperable": True
-        })
-
-    # Actualizar memoria de la conversación
+    
     _actualizar_memoria(state)
-
     return state
 
 
 def _actualizar_memoria(state: AgentState):
-    """Agrega el intercambio actual a la memoria de conversación.
-    
-    Agregamos tanto la pregunta del usuario como la respuesta del agente.
-    Si la memoria excede el límite, eliminamos los mensajes más antiguos.
-    """
-    # Agregar pregunta del usuario
     state.memoria.append(MensajeMemoria(
         rol="usuario",
-        contenido=state.pregunta_actual
+        contenido=state.pregunta_actual[:70]
     ))
-
-    # Agregar respuesta del agente (si la hay)
+    
     if state.respuesta_final:
         state.memoria.append(MensajeMemoria(
             rol="agente",
-            contenido=state.respuesta_final
+            contenido=state.respuesta_final[:70]
         ))
-
-    # Limitar el tamaño de la memoria
-    if len(state.memoria) > MAX_MENSAJES_MEMORIA:
-        state.memoria = state.memoria[-MAX_MENSAJES_MEMORIA:]
+    
+    if len(state.memoria) > MAX_MENSAJES_MEMORIA * 2:
+        state.memoria = state.memoria[-(MAX_MENSAJES_MEMORIA * 2):]
