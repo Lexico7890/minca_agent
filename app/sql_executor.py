@@ -51,7 +51,7 @@ async def ejecutar_sql(state: AgentState) -> dict:
             }]
         }
 
-    print(f"EJECUTOR_SQL - Ejecutando: {sql[:120]}...")
+    print(f"EJECUTOR_SQL - Ejecutando: {sql}...")
 
     try:
         async with get_connection() as conn:
