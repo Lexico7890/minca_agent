@@ -12,7 +12,7 @@ En producción esto podría moverse a Redis o una tabla de DB,
 pero para el MVP un diccionario es suficiente y más simple.
 """
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, List
@@ -22,6 +22,7 @@ import uuid
 from utils.database import startup, shutdown
 from app.graph import agent
 from app.state import AgentState, MensajeMemoria
+from app.ingest import ingest_pdf, TIPOS_VALIDOS
 
 
 # --- Almacén de sesiones en memoria ---
@@ -183,6 +184,67 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
         intenciones_detectadas=resultado.get("intenciones", []),
         errores=resultado.get("errores", None)
     )
+
+
+# --- Endpoint de ingesta de documentos ---
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+@app.post("/ingest-document")
+async def ingest_document(
+    request: Request,
+    file: UploadFile = File(...),
+    nombre: str = Form(...),
+    tipo: str = Form(...),
+    descripcion: str = Form(""),
+):
+    """Ingesta un PDF: lo divide en chunks, genera embeddings y lo guarda en Supabase.
+
+    Parámetros (multipart/form-data):
+    - file: Archivo PDF a procesar (máximo 10 MB)
+    - nombre: Nombre descriptivo del documento
+    - tipo: Tipo de documento (politica_garantia, catalogo, procedimiento, faq, otro)
+    - descripcion: Descripción opcional
+    """
+    # 1. Autenticación
+    await verificar_autenticacion(request)
+
+    # 2. Validar tipo de documento
+    if tipo not in TIPOS_VALIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo inválido. Opciones: {', '.join(TIPOS_VALIDOS)}"
+        )
+
+    # 3. Validar que sea PDF
+    filename = file.filename or "documento.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
+
+    # 4. Leer archivo y validar tamaño
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="El archivo excede el límite de 10 MB")
+
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    # 5. Procesar PDF
+    try:
+        resultado = await ingest_pdf(
+            file_bytes=file_bytes,
+            nombre=nombre,
+            tipo=tipo,
+            descripcion=descripcion,
+            filename=filename,
+        )
+        return resultado
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"INGEST - Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error procesando el documento: {str(e)}")
 
 
 # --- Endpoint de salud ---

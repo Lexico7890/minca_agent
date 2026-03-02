@@ -43,12 +43,15 @@ Convierte preguntas en español a consultas SQL precisas.
 
 REGLAS:
 1. SOLO genera SELECT. Nunca INSERT, UPDATE, DELETE, DROP ni otra operación.
-2. Usa ILIKE con '%valor%' para búsquedas de texto (los usuarios no escriben nombres exactos).
-3. Incluye JOINs para mostrar nombres legibles (no UUIDs).
-4. Para cantidades totales usa SUM(), COUNT() u otra función de agregación.
-5. Convierte UUIDs a texto con ::text cuando los incluyas en SELECT.
-6. Usa alias descriptivos (AS nombre_legible).
-7. Agrega LIMIT 50 excepto en agregaciones puras (COUNT/SUM sin GROUP BY).
+2. NUNCA uses frases completas en un solo ILIKE. Separa CADA palabra clave en su propio ILIKE con AND.
+3. Trunca cada palabra al tronco (quita s, es, as del final) para matchear plural y singular. Ejemplo: "pastillas" → '%pastill%', "hidráulicas" → '%hidraulic%', "llantas" → '%llant%', "filtros" → '%filtr%'.
+4. Usa el texto EXACTO que el usuario escribió como base para los keywords. No corrijas ortografía ni uses sinónimos.
+5. Siempre incluye r.nombre en el SELECT para que el usuario vea qué repuesto se encontró.
+6. Incluye JOINs para mostrar nombres legibles (no UUIDs).
+7. Para cantidades totales usa SUM(), COUNT() u otra función de agregación, siempre con GROUP BY r.nombre.
+8. Convierte UUIDs a texto con ::text cuando los incluyas en SELECT.
+9. Usa alias descriptivos (AS nombre_legible).
+10. Agrega LIMIT 50 excepto en agregaciones puras (COUNT/SUM sin GROUP BY).
 
 {schema}
 
@@ -56,17 +59,20 @@ FORMATO: Retorna SOLO un JSON válido, sin markdown ni texto extra:
 {{"sql": "SELECT ...", "explicacion": "descripción breve"}}
 
 EJEMPLOS:
-P: "¿Cuántas pastillas hidráulicas hay en avenida chile?"
-{{"sql": "SELECT r.nombre, SUM(i.cantidad) AS total FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%pastilla%' AND l.nombre ILIKE '%avenida chile%' GROUP BY r.nombre", "explicacion": "Cantidad de pastillas hidráulicas en Avenida Chile"}}
+P: "cuantas pastillas hidráulicas hay en tester location"
+{{"sql": "SELECT r.nombre, SUM(i.cantidad) AS total FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%pastill%' AND r.nombre ILIKE '%hidraulic%' AND l.nombre ILIKE '%tester%' GROUP BY r.nombre", "explicacion": "Pastillas hidráulicas en Tester Location"}}
 
-P: "¿Qué repuestos tienen stock bajo?"
-{{"sql": "SELECT r.referencia, r.nombre, i.cantidad, i.cantidad_minima, l.nombre AS localizacion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE i.cantidad <= i.cantidad_minima AND i.cantidad > 0 ORDER BY i.cantidad LIMIT 50", "explicacion": "Repuestos con stock por debajo del mínimo"}}
+P: "cuantas llantas sellomatic tenemos en bodega central"
+{{"sql": "SELECT r.nombre, SUM(i.cantidad) AS total FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%llant%' AND r.nombre ILIKE '%sellomatic%' AND l.nombre ILIKE '%bodega central%' GROUP BY r.nombre", "explicacion": "Llantas sellomatic en Bodega Central"}}
 
-P: "¿Cuántas garantías pendientes hay?"
+P: "qué repuestos tienen stock bajo"
+{{"sql": "SELECT r.referencia, r.nombre, i.cantidad, i.cantidad_minima, l.nombre AS localizacion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE i.cantidad <= i.cantidad_minima AND i.cantidad > 0 ORDER BY i.cantidad LIMIT 50", "explicacion": "Repuestos con stock bajo"}}
+
+P: "cuántas garantías pendientes hay"
 {{"sql": "SELECT COUNT(*) AS total_pendientes FROM garantias WHERE estado ILIKE '%pendiente%'", "explicacion": "Total de garantías pendientes"}}
 
-P: "Dame el inventario completo de bodega central"
-{{"sql": "SELECT r.referencia, r.nombre, r.marca, i.cantidad, i.posicion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE l.nombre ILIKE '%bodega central%' ORDER BY r.nombre LIMIT 50", "explicacion": "Inventario completo de Bodega Central"}}"""
+P: "muéstrame los filtros de aceite en taller norte"
+{{"sql": "SELECT r.referencia, r.nombre, i.cantidad, i.posicion, l.nombre AS localizacion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%filtr%' AND r.nombre ILIKE '%aceit%' AND l.nombre ILIKE '%taller norte%' ORDER BY r.nombre LIMIT 50", "explicacion": "Filtros de aceite en Taller Norte"}}"""
 
 
 # --- Keywords prohibidos en SQL ---
