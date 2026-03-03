@@ -5,11 +5,12 @@ Pipeline:
 2. Busca chunks similares en document_chunks usando match_documents() (pgvector HNSW)
 3. Retorna los chunks más relevantes en contexto_rag
 
-Usa el MISMO modelo de embeddings que ingest.py para garantizar
+Usa el MISMO modelo de embeddings que scripts/ingest_local.py para garantizar
 consistencia entre los vectores almacenados y los de búsqueda.
-"""
 
-from sentence_transformers import SentenceTransformer
+NOTA: El modelo se carga con lazy loading (al primer uso, no al importar)
+para reducir el consumo de RAM en Render free tier.
+"""
 
 from app.state import AgentState
 from utils.database import get_connection
@@ -20,8 +21,23 @@ from utils.database import get_connection
 MATCH_THRESHOLD = 0.5   # Similitud mínima (coseno). Conservador para español.
 MATCH_COUNT = 5          # Top-k chunks a retornar
 
-# Modelo de embeddings: se carga una sola vez al importar el módulo
-_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+# Modelo de embeddings: lazy loading para no consumir RAM al arrancar
+_embed_model = None
+
+
+def _get_embed_model():
+    """Carga el modelo de embeddings la primera vez que se necesita.
+
+    Lazy loading: evita cargar ~80MB de RAM al arrancar el servidor.
+    Solo se carga cuando llega la primera query RAG.
+    """
+    global _embed_model
+    if _embed_model is None:
+        from sentence_transformers import SentenceTransformer
+        print("BUSCADOR_RAG - Cargando modelo de embeddings (primera vez)...")
+        _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+        print("BUSCADOR_RAG - Modelo cargado")
+    return _embed_model
 
 
 # --- Generación de embedding para la query ---
@@ -29,10 +45,11 @@ _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 def generar_embedding_query(texto: str) -> list[float]:
     """Genera un embedding para la pregunta del usuario.
 
-    Usa all-MiniLM-L6-v2 (mismo modelo que ingest.py).
+    Usa all-MiniLM-L6-v2 (mismo modelo que scripts/ingest_local.py).
     Un solo texto, sin batching — es una query individual.
     """
-    embedding = _embed_model.encode([texto])[0].tolist()
+    model = _get_embed_model()
+    embedding = model.encode([texto])[0].tolist()
     print(f"BUSCADOR_RAG - Embedding generado ({len(embedding)} dims)")
     return embedding
 

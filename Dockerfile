@@ -14,9 +14,6 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # Instalar el resto de dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-descargar el modelo de embeddings durante build para evitar cold starts lentos
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
 # Copiar el resto del código
 COPY . .
 

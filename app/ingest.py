@@ -1,33 +1,23 @@
-"""Lógica de ingesta de PDFs para RAG.
+"""Utilidades de procesamiento de texto para ingesta de PDFs.
 
-Pipeline lineal: cargar PDF → dividir en chunks → generar embeddings → guardar en DB.
-No necesita LangGraph porque no es un flujo agentico, es un proceso secuencial.
+Funciones puras de extracción y chunking reutilizables por
+el script local de ingesta (scripts/ingest_local.py).
 
-Usa:
-- pypdf para extraer texto del PDF (ya en requirements)
-- langchain RecursiveCharacterTextSplitter para chunking (ya en requirements)
-- all-MiniLM-L6-v2 (sentence-transformers) para embeddings (384 dims, local, gratuito)
-- psycopg pool existente para guardar en Supabase (utils/database.py)
+NO carga modelos de embeddings ni accede a la base de datos.
+Eso lo hace el script local directamente.
 """
 
 import io
-from typing import Optional
 
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
-
-from utils.database import get_connection
 
 
 # --- Configuración ---
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
-TIPOS_VALIDOS = ["politica_garantia", "catalogo", "procedimiento", "faq", "otro"]
-
-# Modelo de embeddings: se carga una sola vez al importar el módulo
-_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+TIPOS_VALIDOS = ["politica_garantia", "catalogo", "procedimiento", "faq", "manual_usuario", "otro"]
 
 
 # --- Funciones de procesamiento ---
@@ -76,124 +66,3 @@ def dividir_en_chunks(paginas: list[dict]) -> list[dict]:
                 chunk_index += 1
 
     return chunks
-
-
-def generar_embeddings(chunks: list[dict]) -> list[list[float]]:
-    """Genera embeddings para los chunks usando all-MiniLM-L6-v2.
-
-    Procesa todos los textos de una sola vez (modelo local, sin límites de API).
-    Retorna listas de floats (384 dims) compatibles con pgvector.
-    """
-    textos = [c["text"] for c in chunks]
-
-    embeddings = _embed_model.encode(textos, show_progress_bar=False)
-    all_embeddings = [emb.tolist() for emb in embeddings]
-
-    print(f"INGEST - Embeddings generados: {len(all_embeddings)} ({len(all_embeddings[0])} dims)")
-
-    return all_embeddings
-
-
-async def guardar_documento(
-    nombre: str,
-    tipo: str,
-    descripcion: str,
-    filename: str,
-    chunks: list[dict],
-    embeddings: list[list[float]],
-) -> str:
-    """Guarda el documento y sus chunks en la base de datos.
-
-    Usa el pool de conexiones existente (psycopg).
-    Retorna el id_documento generado.
-    """
-    async with get_connection() as conn:
-        # 1. Insertar documento principal
-        cursor = await conn.execute(
-            """
-            INSERT INTO documents (nombre, descripcion, tipo, activo)
-            VALUES (%s, %s, %s, true)
-            RETURNING id::text
-            """,
-            (nombre, descripcion, tipo),
-        )
-        row = await cursor.fetchone()
-        id_documento = row[0]
-
-        print(f"INGEST - Documento creado: {id_documento}")
-
-        # 2. Insertar chunks con embeddings
-        for chunk, embedding in zip(chunks, embeddings):
-            await conn.execute(
-                """
-                INSERT INTO document_chunks
-                    (id_documento, contenido, embedding, pagina, chunk_index, metadata)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    id_documento,
-                    chunk["text"],
-                    embedding,
-                    chunk["page"],
-                    chunk["chunk_index"],
-                    {"source": filename, "page": chunk["page"]},
-                ),
-            )
-
-        print(f"INGEST - {len(chunks)} chunks insertados")
-
-    return id_documento
-
-
-async def ingest_pdf(
-    file_bytes: bytes,
-    nombre: str,
-    tipo: str,
-    descripcion: str = "",
-    filename: str = "documento.pdf",
-) -> dict:
-    """Orquesta el pipeline completo de ingesta.
-
-    1. Extraer texto del PDF
-    2. Dividir en chunks
-    3. Generar embeddings con all-MiniLM-L6-v2
-    4. Guardar en base de datos
-
-    Retorna dict con el resultado de la ingesta.
-    """
-    print(f"\nINGEST - Iniciando: {nombre} ({tipo})")
-
-    # 1. Extraer texto
-    paginas = extraer_texto_pdf(file_bytes)
-    if not paginas:
-        raise ValueError("El PDF no contiene texto extraíble")
-    print(f"INGEST - {len(paginas)} páginas con texto")
-
-    # 2. Dividir en chunks
-    chunks = dividir_en_chunks(paginas)
-    if not chunks:
-        raise ValueError("No se generaron chunks válidos del PDF")
-    print(f"INGEST - {len(chunks)} chunks generados")
-
-    # 3. Generar embeddings
-    embeddings = generar_embeddings(chunks)
-
-    # 4. Guardar en DB
-    id_documento = await guardar_documento(
-        nombre=nombre,
-        tipo=tipo,
-        descripcion=descripcion,
-        filename=filename,
-        chunks=chunks,
-        embeddings=embeddings,
-    )
-
-    print(f"INGEST - Completado: {id_documento}")
-
-    return {
-        "id_documento": id_documento,
-        "chunks_insertados": len(chunks),
-        "paginas_procesadas": len(paginas),
-        "nombre": nombre,
-        "tipo": tipo,
-    }
