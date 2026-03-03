@@ -1,7 +1,7 @@
 """Nodo de búsqueda semántica (RAG) sobre documentos ingestados.
 
 Pipeline:
-1. Genera embedding de la pregunta del usuario (Gemini text-embedding-004)
+1. Genera embedding de la pregunta del usuario (Gemini gemini-embedding-001)
 2. Busca chunks similares en document_chunks usando match_documents() (pgvector HNSW)
 3. Retorna los chunks más relevantes en contexto_rag
 
@@ -16,7 +16,7 @@ from utils.database import get_connection
 
 # --- Configuración ---
 
-EMBED_MODEL = "text-embedding-004"
+EMBED_MODEL = "gemini-embedding-001"
 MATCH_THRESHOLD = 0.5   # Similitud mínima (coseno). Conservador para español.
 MATCH_COUNT = 5          # Top-k chunks a retornar
 
@@ -26,7 +26,7 @@ MATCH_COUNT = 5          # Top-k chunks a retornar
 def generar_embedding_query(texto: str) -> list[float]:
     """Genera un embedding para la pregunta del usuario.
 
-    Usa Gemini text-embedding-004 (mismo modelo que ingest.py).
+    Usa Gemini gemini-embedding-001 (mismo modelo que ingest.py).
     Un solo texto, sin batching — es una query individual.
     """
     gemini_key = os.getenv("GEMINI_API_KEY")
