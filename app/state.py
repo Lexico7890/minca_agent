@@ -44,6 +44,7 @@ class AgentState(BaseModel):
 
     # === ENTRADA ===
     pregunta_actual: str = ""
+    modo: str = "sql"  # "sql" = consulta SQL dinámica | "rag" = búsqueda semántica en documentos
     memoria: Annotated[List[MensajeMemoria], operator.add] = Field(default_factory=list)
     
     # === CLASIFICACIÓN ===

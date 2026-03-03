@@ -42,6 +42,9 @@ class PreguntaRequest(BaseModel):
     """ID de sesión opcional. Si no viene, se crea una nueva sesión.
     El frontend debe guardar este ID y enviarlo en peticiones siguientes
     para mantener el contexto de la conversación."""
+    modo: str = "sql"
+    """Modo de operación: 'sql' para consultas SQL dinámicas sobre
+    datos estructurados, 'rag' para búsqueda semántica en documentos."""
 
 
 class RespuestaResponse(BaseModel):
@@ -136,10 +139,13 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     # 1. Autenticación
     await verificar_autenticacion(request)
 
-    # 2. Validar que la pregunta no esté vacía
+    # 2. Validar entrada
     pregunta = body.pregunta.strip()
     if not pregunta:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía")
+
+    if body.modo not in ("sql", "rag"):
+        raise HTTPException(status_code=400, detail="Modo inválido. Opciones: sql, rag")
 
     # 3. Obtener sesión
     session_id, memoria_actual = obtener_memoria_sesion(body.session_id)
@@ -150,6 +156,7 @@ async def procesar_pregunta(request: Request, body: PreguntaRequest):
     # de AgentState automáticamente.
     estado_inicial = {
         "pregunta_actual": pregunta,
+        "modo": body.modo,
         "memoria": [msg.model_dump() for msg in memoria_actual]
     }
 
