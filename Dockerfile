@@ -8,8 +8,14 @@ WORKDIR /app
 # Si no cambian las dependencias, Docker no las reinstala en cada build.
 COPY requirements.txt .
 
-# Instalar dependencias
+# Instalar PyTorch CPU-only (mucho más liviano que la versión con CUDA)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Instalar el resto de dependencias
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-descargar el modelo de embeddings durante build para evitar cold starts lentos
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Copiar el resto del código
 COPY . .

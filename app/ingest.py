@@ -6,18 +6,16 @@ No necesita LangGraph porque no es un flujo agentico, es un proceso secuencial.
 Usa:
 - pypdf para extraer texto del PDF (ya en requirements)
 - langchain RecursiveCharacterTextSplitter para chunking (ya en requirements)
-- Gemini gemini-embedding-001 para embeddings (usa GEMINI_API_KEY existente)
+- all-MiniLM-L6-v2 (sentence-transformers) para embeddings (384 dims, local, gratuito)
 - psycopg pool existente para guardar en Supabase (utils/database.py)
 """
 
-import os
 import io
-import time
 from typing import Optional
 
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from google import genai
+from sentence_transformers import SentenceTransformer
 
 from utils.database import get_connection
 
@@ -26,9 +24,10 @@ from utils.database import get_connection
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
-EMBED_MODEL = "gemini-embedding-001"
-EMBED_BATCH = 20
 TIPOS_VALIDOS = ["politica_garantia", "catalogo", "procedimiento", "faq", "otro"]
+
+# Modelo de embeddings: se carga una sola vez al importar el módulo
+_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
 # --- Funciones de procesamiento ---
@@ -80,34 +79,17 @@ def dividir_en_chunks(paginas: list[dict]) -> list[dict]:
 
 
 def generar_embeddings(chunks: list[dict]) -> list[list[float]]:
-    """Genera embeddings para los chunks usando Gemini gemini-embedding-001.
+    """Genera embeddings para los chunks usando all-MiniLM-L6-v2.
 
-    Procesa en batches de EMBED_BATCH para no saturar la API.
+    Procesa todos los textos de una sola vez (modelo local, sin límites de API).
+    Retorna listas de floats (384 dims) compatibles con pgvector.
     """
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key:
-        raise ValueError("GEMINI_API_KEY no configurada")
-
-    client = genai.Client(api_key=gemini_key)
-    all_embeddings = []
     textos = [c["text"] for c in chunks]
 
-    for i in range(0, len(textos), EMBED_BATCH):
-        batch = textos[i:i + EMBED_BATCH]
+    embeddings = _embed_model.encode(textos, show_progress_bar=False)
+    all_embeddings = [emb.tolist() for emb in embeddings]
 
-        result = client.models.embed_content(
-            model=EMBED_MODEL,
-            contents=batch,
-        )
-
-        batch_embeddings = [e.values for e in result.embeddings]
-        all_embeddings.extend(batch_embeddings)
-
-        # Pausa entre batches para no saturar la API
-        if i + EMBED_BATCH < len(textos):
-            time.sleep(0.3)
-
-        print(f"INGEST - Embeddings: {len(all_embeddings)}/{len(textos)}")
+    print(f"INGEST - Embeddings generados: {len(all_embeddings)} ({len(all_embeddings[0])} dims)")
 
     return all_embeddings
 
@@ -174,7 +156,7 @@ async def ingest_pdf(
 
     1. Extraer texto del PDF
     2. Dividir en chunks
-    3. Generar embeddings con Gemini
+    3. Generar embeddings con all-MiniLM-L6-v2
     4. Guardar en base de datos
 
     Retorna dict con el resultado de la ingesta.

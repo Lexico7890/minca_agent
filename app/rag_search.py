@@ -1,7 +1,7 @@
 """Nodo de búsqueda semántica (RAG) sobre documentos ingestados.
 
 Pipeline:
-1. Genera embedding de la pregunta del usuario (Gemini gemini-embedding-001)
+1. Genera embedding de la pregunta del usuario (all-MiniLM-L6-v2, 384 dims)
 2. Busca chunks similares en document_chunks usando match_documents() (pgvector HNSW)
 3. Retorna los chunks más relevantes en contexto_rag
 
@@ -9,16 +9,19 @@ Usa el MISMO modelo de embeddings que ingest.py para garantizar
 consistencia entre los vectores almacenados y los de búsqueda.
 """
 
-import os
+from sentence_transformers import SentenceTransformer
+
 from app.state import AgentState
 from utils.database import get_connection
 
 
 # --- Configuración ---
 
-EMBED_MODEL = "gemini-embedding-001"
 MATCH_THRESHOLD = 0.5   # Similitud mínima (coseno). Conservador para español.
 MATCH_COUNT = 5          # Top-k chunks a retornar
+
+# Modelo de embeddings: se carga una sola vez al importar el módulo
+_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
 # --- Generación de embedding para la query ---
@@ -26,22 +29,10 @@ MATCH_COUNT = 5          # Top-k chunks a retornar
 def generar_embedding_query(texto: str) -> list[float]:
     """Genera un embedding para la pregunta del usuario.
 
-    Usa Gemini gemini-embedding-001 (mismo modelo que ingest.py).
+    Usa all-MiniLM-L6-v2 (mismo modelo que ingest.py).
     Un solo texto, sin batching — es una query individual.
     """
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key:
-        raise ValueError("GEMINI_API_KEY no configurada")
-
-    from google import genai
-    client = genai.Client(api_key=gemini_key)
-
-    result = client.models.embed_content(
-        model=EMBED_MODEL,
-        contents=[texto],
-    )
-
-    embedding = result.embeddings[0].values
+    embedding = _embed_model.encode([texto])[0].tolist()
     print(f"BUSCADOR_RAG - Embedding generado ({len(embedding)} dims)")
     return embedding
 
@@ -76,7 +67,7 @@ async def buscar_documentos(state: AgentState) -> dict:
         #                      documento_nombre, documento_tipo, similarity
         async with get_connection() as conn:
             cursor = await conn.execute(
-                "SELECT * FROM match_documents(%s::vector(768), %s, %s)",
+                "SELECT * FROM match_documents(%s::vector(384), %s, %s)",
                 (str(embedding), MATCH_THRESHOLD, MATCH_COUNT),
             )
             rows = await cursor.fetchall()
@@ -110,17 +101,6 @@ async def buscar_documentos(state: AgentState) -> dict:
         return {
             "contexto_rag": chunks,
             "intenciones": ["rag_documentos"],
-        }
-
-    except ValueError as e:
-        # Error de configuración (GEMINI_API_KEY)
-        print(f"BUSCADOR_RAG - Error config: {str(e)}")
-        return {
-            "errores": [{
-                "nodo": "buscador_rag",
-                "mensaje": str(e),
-                "recuperable": False
-            }]
         }
 
     except Exception as e:
