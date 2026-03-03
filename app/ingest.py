@@ -6,7 +6,7 @@ No necesita LangGraph porque no es un flujo agentico, es un proceso secuencial.
 Usa:
 - pypdf para extraer texto del PDF (ya en requirements)
 - langchain RecursiveCharacterTextSplitter para chunking (ya en requirements)
-- Gemini text-embedding-004 para embeddings (usa GEMINI_API_KEY existente)
+- Gemini gemini-embedding-001 para embeddings (usa GEMINI_API_KEY existente)
 - psycopg pool existente para guardar en Supabase (utils/database.py)
 """
 
@@ -26,7 +26,7 @@ from utils.database import get_connection
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
-EMBED_MODEL = "text-embedding-004"
+EMBED_MODEL = "gemini-embedding-001"
 EMBED_BATCH = 20
 TIPOS_VALIDOS = ["politica_garantia", "catalogo", "procedimiento", "faq", "otro"]
 
@@ -80,7 +80,7 @@ def dividir_en_chunks(paginas: list[dict]) -> list[dict]:
 
 
 def generar_embeddings(chunks: list[dict]) -> list[list[float]]:
-    """Genera embeddings para los chunks usando Gemini text-embedding-004.
+    """Genera embeddings para los chunks usando Gemini gemini-embedding-001.
 
     Procesa en batches de EMBED_BATCH para no saturar la API.
     """
