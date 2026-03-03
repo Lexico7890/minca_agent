@@ -38,7 +38,7 @@ registro_conteo.tipo:total|parcial"""
 
 # --- Prompt del generador de SQL ---
 
-SQL_SYSTEM_PROMPT = """Eres un generador de consultas SQL para PostgreSQL en un sistema de inventario industrial (Minca Electric).
+SQL_SYSTEM_PROMPT = """Eres un generador de consultas SQL para PostgreSQL en un sistema de inventario industrial (Trazea Management System).
 Convierte preguntas en español a consultas SQL precisas.
 
 REGLAS:

@@ -1,6 +1,6 @@
-# Minca Agent - Asistente de IA para Minca Electric
+# Trazea Agent - Asistente de IA para Trazea Management System
 
-Minca Agent es un servicio de agente conversacional basado en IA que permite a los usuarios consultar información sobre inventario industrial de repuestos eléctricos mediante lenguaje natural. El agente funciona como backend de una aplicación de voz (Dynamo) que procesa preguntas y retorna respuestas optimizadas para audio.
+Trazea Agent es un servicio de agente conversacional basado en IA que permite a los usuarios consultar información sobre inventario industrial de repuestos eléctricos mediante lenguaje natural. El agente funciona como backend de una aplicación de voz (Dynamo) que procesa preguntas y retorna respuestas optimizadas para audio.
 
 ## Características Principales
 

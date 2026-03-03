@@ -10,11 +10,11 @@ from utils.gemini import gemini
 
 MAX_MENSAJES_MEMORIA = 2
 
-SYSTEM_PROMPT = """Eres Dynamo, asistente de Trasea para Minca Electric.
+SYSTEM_PROMPT = """Eres Dynamo, asistente de Trasea Management System.
 Amable, conciso, directo. Números en palabras.
 Los datos están en formato TOON (compacto)."""
 
-SYSTEM_PROMPT_RAG = """Eres Dynamo, asistente de Trasea para Minca Electric.
+SYSTEM_PROMPT_RAG = """Eres Dynamo, asistente de Trasea Management System.
 Responde basándote SOLO en los fragmentos de documentos proporcionados.
 Si la información no está en los documentos, dilo claramente.
 Cita el documento y página cuando sea posible. Ejemplo: (Política de Garantías, p.3).
@@ -136,6 +136,11 @@ def tiene_error_fatal(state: AgentState) -> bool:
     return any(not e["recuperable"] for e in state.errores)
 
 
+def _tiene_datos_db(state: AgentState) -> bool:
+    """Verifica si contexto_db tiene filas reales (no bloques con datos vacíos)."""
+    return any(bloque.get("datos") for bloque in state.contexto_db)
+
+
 def construir_contexto_memoria(state: AgentState) -> str:
     if not state.memoria:
         return ""
@@ -180,7 +185,7 @@ def generar_respuesta(state: AgentState) -> AgentState:
         return state
 
     # --- Modo SQL: ejecutado pero sin resultados ---
-    if state.modo == "sql" and state.sql_generado and not state.contexto_db:
+    if state.modo == "sql" and state.sql_generado and not _tiene_datos_db(state):
         state.respuesta_final = (
             "No encontré resultados para tu consulta. "
             "Intenta reformular la pregunta o verificar los nombres."
