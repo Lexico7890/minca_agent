@@ -1,33 +1,37 @@
-"""Definición del grafo de LangGraph con SQL dinámico.
+"""Definición del grafo de LangGraph con SQL dinámico + RAG.
 
 ESTRUCTURA DEL GRAFO:
 
     START
       ↓
-    generador_sql
-      ↓
-    ┌── decide_sql ──┐
-    ↓                ↓
-  skip_sql       ejecutor_sql
-    ↓                ↓
-    │          ┌── decide_exec ──┐
-    │          ↓                 ↓
-    │     retry → generador_sql  normal
-    │                            ↓
-    └────────────┬───────────────┘
-                 ↓
-         generador_respuesta
-                 ↓
-                END
+    decidir_modo (conditional edge)
+      ├── modo="sql" ──→ generador_sql
+      │                    ↓
+      │                  ┌── decide_sql ──┐
+      │                  ↓                ↓
+      │               skip_sql       ejecutor_sql
+      │                  ↓                ↓
+      │                  │          ┌── decide_exec ──┐
+      │                  │          ↓                 ↓
+      │                  │     retry → generador_sql  normal
+      │                  │                            ↓
+      │                  └────────────┬───────────────┘
+      │                               ↓
+      └── modo="rag" ──→ buscador_rag ─┐
+                                       ↓
+                               generador_respuesta
+                                       ↓
+                                      END
 
-El loop de reintento permite que el LLM corrija su SQL
-hasta 2 veces si la ejecución falla.
+El modo SQL tiene loop de reintento (hasta 2 veces).
+El modo RAG es un pipeline lineal: embedding → búsqueda → respuesta.
 """
 
 from langgraph.graph import StateGraph, START, END
 from app.state import AgentState
 from app.sql_generator import generar_sql
 from app.sql_executor import ejecutar_sql
+from app.rag_search import buscar_documentos
 from app.response_generator import generar_respuesta
 
 
@@ -35,6 +39,22 @@ def _tiene_error_fatal(state: AgentState) -> bool:
     """Verifica si hay algún error no recuperable."""
     return any(not e.get("recuperable", True) for e in state.errores)
 
+
+# --- Router: decide SQL vs RAG ---
+
+def decidir_modo(state: AgentState) -> str:
+    """Router inicial: decide la ruta según el modo de la petición.
+
+    Rutas posibles:
+    - modo="sql" → generador_sql (consulta SQL dinámica)
+    - modo="rag" → buscador_rag (búsqueda semántica en documentos)
+    """
+    if state.modo == "rag":
+        return "buscador_rag"
+    return "generador_sql"
+
+
+# --- Decisiones del flujo SQL ---
 
 def decidir_despues_de_sql(state: AgentState) -> str:
     """Decisión después del generador de SQL.
@@ -77,28 +97,30 @@ def decidir_despues_de_ejecucion(state: AgentState) -> str:
 
 
 def construir_grafo():
-    """Construye y compila el grafo del agente con SQL dinámico."""
+    """Construye y compila el grafo del agente con SQL dinámico + RAG."""
     grafo = StateGraph(AgentState)
 
     # --- Registrar nodos ---
     grafo.add_node("generador_sql", generar_sql)
     grafo.add_node("ejecutor_sql", ejecutar_sql)
+    grafo.add_node("buscador_rag", buscar_documentos)
     grafo.add_node("generador_respuesta", generar_respuesta)
 
-    # --- Arista de entrada ---
-    grafo.add_edge(START, "generador_sql")
+    # --- Router de entrada: SQL o RAG según modo ---
+    grafo.add_conditional_edges(START, decidir_modo)
 
-    # --- Arista condicional después del generador de SQL ---
+    # --- Flujo SQL: generador → ejecutor (con retry) → respuesta ---
     grafo.add_conditional_edges(
         "generador_sql",
         decidir_despues_de_sql
     )
-
-    # --- Arista condicional después del ejecutor (permite retry) ---
     grafo.add_conditional_edges(
         "ejecutor_sql",
         decidir_despues_de_ejecucion
     )
+
+    # --- Flujo RAG: buscador → respuesta ---
+    grafo.add_edge("buscador_rag", "generador_respuesta")
 
     # --- Arista final ---
     grafo.add_edge("generador_respuesta", END)
