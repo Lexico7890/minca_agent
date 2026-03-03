@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
 # --- Aplicación ---
 
 app = FastAPI(
-    title="Minca Electric - Servicio de Agentes",
+    title="Trazea - Servicio de Agentes",
     lifespan=lifespan
 )
 

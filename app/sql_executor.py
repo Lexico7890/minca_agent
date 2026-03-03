@@ -75,10 +75,12 @@ async def ejecutar_sql(state: AgentState) -> dict:
         fuente = _inferir_fuente(sql)
         print(f"EJECUTOR_SQL - {fuente}: {len(datos)} filas retornadas")
 
-        return {
-            "contexto_db": [{"fuente": fuente, "datos": datos}],
-            "sql_error_anterior": "",  # Limpiar error si la ejecución fue exitosa
-        }
+        resultado = {"sql_error_anterior": ""}  # Limpiar error si la ejecución fue exitosa
+
+        if datos:  # Solo agregar bloque si hay filas reales
+            resultado["contexto_db"] = [{"fuente": fuente, "datos": datos}]
+
+        return resultado
 
     except Exception as e:
         error_msg = str(e)[:300]
