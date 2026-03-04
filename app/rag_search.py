@@ -18,8 +18,8 @@ from utils.database import get_connection
 
 # --- Configuración ---
 
-MATCH_THRESHOLD = 0.5   # Similitud mínima (coseno). Conservador para español.
-MATCH_COUNT = 5          # Top-k chunks a retornar
+MATCH_THRESHOLD = 0.3   # Similitud mínima (coseno). Bajo para all-MiniLM-L6-v2 con texto en español.
+MATCH_COUNT = 8          # Top-k chunks a retornar
 
 # Modelo de embeddings: lazy loading para no consumir RAM al arrancar
 _embed_model = None
