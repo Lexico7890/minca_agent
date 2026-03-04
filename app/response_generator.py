@@ -120,8 +120,7 @@ def construir_contexto_rag(state: AgentState) -> str:
             f"  [{i+1}] {chunk.get('documento', '?')} "
             f"(p.{chunk.get('pagina', '?')}, sim:{sim:.0%})"
         )
-        # Limitar contenido a ~300 chars por chunk para controlar tokens
-        contenido = chunk.get("contenido", "")[:300]
+        contenido = chunk.get("contenido", "")
         lines.append(f"  {contenido}")
 
     return "\n".join(lines)
