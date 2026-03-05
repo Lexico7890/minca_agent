@@ -1,202 +1,170 @@
-# Trazea Agent - Asistente de IA para Trazea Management System
+<div align="center">
+  <!-- Aquí puedes colocar tu logo o imagen principal -->
+  <img src="./trazea-icon.png" alt="Trazea Agent Logo" width="200" style="border-radius: 50%;" />
 
-Trazea Agent es un servicio de agente conversacional basado en IA que permite a los usuarios consultar información sobre inventario industrial de repuestos eléctricos mediante lenguaje natural. El agente funciona como backend de una aplicación de voz (Dynamo) que procesa preguntas y retorna respuestas optimizadas para audio.
+  <h1>🤖 Trazea Agent</h1>
+  <p><em>Asistente de IA para Trazea Management System</em></p>
 
-## Características Principales
+  <p>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12+-blue.svg?style=flat-square&logo=python&logoColor=white" alt="Python Version" /></a>
+    <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688.svg?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
+    <a href="https://supabase.com/"><img src="https://img.shields.io/badge/Supabase-Database-3ECF8E.svg?style=flat-square&logo=supabase&logoColor=white" alt="Supabase" /></a>
+    <a href="https://python.langchain.com/docs/langgraph/"><img src="https://img.shields.io/badge/LangGraph-0.3+-FF9900.svg?style=flat-square&logo=langchain&logoColor=white" alt="LangGraph" /></a>
+    <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT" /></a>
+  </p>
+</div>
 
-- **Procesamiento de lenguaje natural**: El agente entiende preguntas en español y determina qué información necesita consultar
-- **Consultas a múltiples categorías**: Inventario, garantías, movimientos técnicos, solicitudes entre bodegas, conteos y catálogo de repuestos
-- **Arquitectura basada en grafos**: Utiliza LangGraph para orquestar el flujo de procesamiento de manera declarativa
-- **Memoria conversacional**: Mantiene contexto entre preguntas de la misma sesión
-- **Fallback automático**: Cambia entre proveedores de LLM (Groq/Gemini) si uno falla
-- **Optimizado para voz**: Las respuestas se generan en formato natural, escritas en palabras y sin listas
+---
 
-## Arquitectura del Sistema
+**Trazea Agent** es un servicio de agente conversacional basado en IA que permite a los usuarios consultar información sobre inventario industrial de repuestos eléctricos mediante lenguaje natural, así como explorar manuales y documentos técnicos usando **RAG** (Retrieval-Augmented Generation). 
 
-```
-                    ┌─────────────────┐
-                    │  FastAPI Server │
-                    │   (main.py)     │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  Estado Inicial │
-                    │  (pregunta +    │
-                    │   memoria)      │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  CLASIFICADOR   │
-                    │  (classifier)   │
-                    └────────┬────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-     ┌────────▼────────┐     │    ┌────────▼────────┐
-     │   ERROR FATAL   │     │    │  EJECUTOR DE    │
-     │ (si falla LLM)  │     │    │   CONSULTAS      │
-     └────────┬────────┘     │    │ (db_tools)       │
-              │              │    └────────┬────────┘
-              └──────────────┼─────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │ GENERADOR DE    │
-                    │ RESPUESTA       │
-                    │ (response_gen)  │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Respuesta     │
-                    │   + Memoria    │
-                    └─────────────────┘
-```
+El agente funciona como backend de una aplicación de voz (Dynamo) que procesa preguntas y retorna respuestas optimizadas para audio.
 
-### Componentes del Grafo (LangGraph)
+## ✨ Características Principales
 
-1. **Clasificador** (`app/classifier.py`): Analiza la pregunta del usuario usando un LLM para detectar:
-   - **Intenciones**: Qué categorías de datos necesita (inventario, garantías, etc.)
-   - **Tipo de operación**: Lectura, inserción, actualización o eliminación
+* 🗣️ **Procesamiento de lenguaje natural:** El agente entiende y procesa preguntas fluidas en español.
+* 🔀 **Modo Dual (SQL y RAG):** 
+  * 🗄️ **Consultas a Base de Datos (SQL):** Generación dinámica de SQL sobre inventario, garantías, movimientos técnicos, solicitudes entre bodegas, conteos y catálogo de repuestos.
+  * 📚 **Búsqueda Semántica (RAG):** Búsqueda inteligente sobre documentos técnicos ingestados usando `pgvector` y embeddings locales (`all-MiniLM-L6-v2`).
+* 🕸️ **Arquitectura basada en grafos:** Utiliza LangGraph para orquestar el flujo condicional de SQL (con reintentos automáticos en caso de fallos) y RAG.
+* 🧠 **Memoria conversacional:** Mantiene el contexto histórico entre preguntas de una misma sesión.
+* 🎙️ **Optimizado para voz:** Las respuestas se estructuran en un formato natural, descritas en palabras y sin listas complejas para una mejor síntesis de voz.
 
-2. **Ejecutor de Consultas** (`app/query_executor.py`): Ejecuta consultas SQL en paralelo según las intenciones detectadas
+## 🏗️ Arquitectura del Sistema (LangGraph)
 
-3. **Generador de Respuesta** (`app/response_generator.py`): Toma los datos de la base de datos y genera una respuesta natural en español
+El sistema utiliza **LangGraph** para enrutar la petición según el modo (`sql` o `rag`) y manejar flujos de error de forma declarativa y completamente resiliente.
 
-### Flujo de Procesamiento
+![alt text](image-1.png)
 
-1. El cliente envía una pregunta con un `session_id` opcional
-2. El clasificador determina qué información necesita el usuario
-3. Si hay un error fatal en clasificación, se salta a generar respuesta de error
-4. El ejecutor consulta la base de datos para cada intención válida
-5. El generador crea una respuesta humanizada con los datos obtenidos
-6. Se actualiza la memoria de la sesión con la pregunta y respuesta
+### 🧩 Componentes Básicos (`app/`)
 
-## Estructura del Proyecto
+* 🧭 **`graph.py`**: Definición general del estado del LangGraph, enrutamiento condicional.
+* 📦 **`state.py`**: Esquemas obligatorios del estado (`AgentState`) que fluye a través de todo el grafo.
+* 📝 **`sql_generator.py`**: Nodo que convierte preguntas a consultas SQL dinámicas basadas en el esquema de la base de datos PostgreSQL.
+* ⚡ **`sql_executor.py`**: Ejecuta las consultas en la BD de forma asíncrona, con manejo predictible de errores y lógica de reintento.
+* 🔎 **`rag_search.py`**: Nodo que busca fragmentos de texto en la base de datos vectorial (`pgvector`) usando un modelo local unificado (`all-MiniLM-L6-v2`). Implementa la técnica de *lazy loading* para ahorrar RAM.
+* 💬 **`response_generator.py`**: Sintetiza inteligentemente la información obtenida para construir la respuesta final con un tono natural y fluido conversacional.
+* 📄 **`ingest.py`**: Micro-herramientas de PDF (extracción y chunking con LangChain) para dar soporte al sistema RAG local.
 
-```
+## 📁 Estructura del Proyecto
+
+```text
 minca_agent/
-├── main.py                    # Servidor FastAPI y endpoints
-├── requirements.txt           # Dependencias Python
-├── Dockerfile                 # Configuración de contenedor
-├── .env.example              # Variables de entorno de ejemplo
+├── main.py                    # 🚀 Servidor FastAPI y endpoints principales
+├── requirements.txt           # 📦 Dependencias Python
+├── Dockerfile                 # 🐳 Configuración del contenedor Docker
+├── .env.example               # 🔑 Variables de entorno de ejemplo
+├── Manual_Errores...          # 📑 Documento de ejemplo para RAG
 │
-├── app/                      # Núcleo del agente LangGraph
-│   ├── __init__.py
-│   ├── graph.py              # Definición del grafo de LangGraph
-│   ├── state.py              # Esquema de estado que fluye por el grafo
-│   ├── classifier.py         # Nodo clasificador de intenciones
-│   ├── query_executor.py     # Nodo ejecutor de consultas a DB
-│   └── response_generator.py # Nodo generador de respuestas
+├── app/                       # 🧠 Núcleo LangGraph
+│   ├── graph.py               # Grafo y edges (router principal)
+│   ├── state.py               # Definición AgentState
+│   ├── sql_generator.py       # Nodo generador de consultas SQL
+│   ├── sql_executor.py        # Nodo ejecutor de consultas
+│   ├── rag_search.py          # Nodo de búsqueda semántica RAG
+│   ├── response_generator.py  # Nodo generador de respuestas
+│   └── ingest.py              # Utilidades de procesamiento de PDFs
 │
-├── utils/                    # Utilidades y clientes externos
-│   ├── __init__.py
-│   ├── gemini.py             # Cliente LLM con fallback (Groq/Gemini)
-│   └── database.py           # Pool de conexiones PostgreSQL
-│
-└── tools/                    # Herramientas de consulta
-    ├── __init__.py
-    └── db_tools.py           # Funciones SQL para cada categoría
+├── scripts/                   # 🛠️ Scripts aislados / mantenimiento
+├── utils/                     # 🔌 Conexiones (Supabase Async, Modelos LLMs)
+└── tools/                     # 🔧 Herramientas secundarias
 ```
 
-## Requisitos
+## 📋 Requisitos Previos
 
-- Python 3.12+
-- PostgreSQL (Supabase)
-- API Keys de Groq y/o Gemini
+Asegúrate de tener instalado lo siguiente antes de empezar:
 
-## Instalación
+* 🐍 **Python 3.12+**
+* 🐘 **PostgreSQL (vía Supabase)** con la extensión `pgvector` activada.
+* 🔑 **API Keys funcionales** de Groq (principal) y/o Gemini (fallback).
+* 💾 **Recursos de alojamiento:** Se recomiendan entre 128MB y 512MB de RAM para soportar la instanciación del modelo de embedding local.
 
-1. **Clonar el repositorio**:
+## 🚀 Instalación
+
+1. **Clonar el repositorio:**
    ```bash
    git clone <repositorio>
    cd minca_agent
    ```
 
-2. **Crear entorno virtual**:
+2. **Crear entorno virtual:**
    ```bash
    python -m venv venv
    source venv/bin/activate  # Linux/Mac
-   # o
-   venv\Scripts\activate     # Windows
+   # o bien en Windows:
+   venv\Scripts\activate     
    ```
 
-3. **Instalar dependencias**:
+3. **Instalar dependencias:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Configurar variables de entorno**:
+4. **Configurar variables de entorno:**
    ```bash
    cp .env.example .env
-   # Editar .env con tus credenciales
+   # Edita el archivo .env con tus credenciales reales
    ```
 
-## Variables de Entorno
+## ⚙️ Variables de Entorno
 
 | Variable | Descripción |
 |----------|-------------|
-| `SUPABASE_DB_URL` | URL de conexión a PostgreSQL de Supabase |
-| `GROQ_API_KEY` | API key de Groq (opcional, pero recomendado) |
-| `GEMINI_API_KEY` | API key de Gemini (fallback) |
-| `AGENT_SERVICE_SECRET` | Secret compartido con Edge Functions |
-| `PORT` | Puerto del servidor (default: 8000) |
+| `SUPABASE_DB_URL` | URL de conexión a PostgreSQL de Supabase. **Requiere** `pgvector`. |
+| `GROQ_API_KEY` | API key de Groq (Recomendado/Principal por su alta velocidad de inferencia). |
+| `GEMINI_API_KEY` | API key de Gemini (Fallback exclusivo LLM, los embeddings son locales). |
+| `AGENT_SERVICE_SECRET` | Token secreto compartido con las Edge Functions para proteger los endpoints. |
+| `PORT` | Puerto HTTP de escucha local (por defecto: `8000`). |
 
-## Uso Local
+## 💻 Uso Local
 
-### Iniciar el servidor:
+### ▶️ Iniciar el servidor
+
+Arranca el servidor de desarrollo apoyado por `uvicorn`:
+
 ```bash
 uvicorn main:app --reload
 ```
 
-### Endpoint de salud:
+### 📡 Endpoints Expuestos
+
+**1. Verificación de Salud (Health Check):**
 ```bash
 GET http://localhost:8000/health
 ```
 
-### Procesar una pregunta:
+**2. Procesamiento de Conversación:**
 ```bash
 POST http://localhost:8000/procesar-pregunta
-Authorization: Bearer <AGENT_SERVICE_SECRET>
+Authorization: Bearer <TU_AGENT_SERVICE_SECRET>
 Content-Type: application/json
 
 {
-  "pregunta": "¿Cuántos filtros hay en la bodega?",
-  "session_id": null  // Opcional: tu propio session_id
+  "pregunta": "¿Cuál es la política de garantía de la batería Minimoto?",
+  "session_id": null,  // ID numérico/alfanumérico de la sesión
+  "modo": "rag"        // Modos válidos: "sql" o "rag"
 }
 ```
 
-## Despliegue
+## 🎯 Modalidades de Consulta
 
-### Docker
+* 📊 **Modo SQL (`"modo": "sql"`):** Orientado a métricas exactas en tiempo real (cantidades, inventarios temporales o históricos de movimientos técnicos), formulando análisis a partir del esquema *hardcodeado* de PostgreSQL en los prompts.
+* 🔍 **Modo RAG (`"modo": "rag"`):** Diseñado para extraer respuestas teóricas y documentación estática de manuales previamente indexados en la base de datos. Se respalda en la métrica de `cosine distance`.
+
+## ☁️ Despliegue
+
+### 🐳 Ambiente Docker
+
+Despliega una imagen consistente desde cualquier lugar:
 
 ```bash
 docker build -t minca-agent .
 docker run -p 8000:8000 --env-file .env minca-agent
 ```
 
-### Railway / Render
+### 🚂 Cloud (Railway / Render)
 
-El proyecto está configurado para desplegarse en Railway o Render:
-- Puerto: 8000
-- Health check: `/health`
-- Requiere las variables de entorno configuradas
+El proyecto está optimizado y preparado para plataformas PaaS con plan gratuito gracias a la instanciación diferida *(lazy loading)* del modelo HNSW-Embedding.
+* **Puerto Exigido:** `8000`
+* **Health Check Path:** `/health`
 
-## Categorías Soportadas
-
-| Categoría | Descripción |
-|-----------|-------------|
-| `inventario` | Stock de repuestos por localización |
-| `garantías` | Estado de garantías, motivos de falla |
-| `movimientos_tecnicos` | Movimientos de repuestos por técnicos |
-| `solicitudes` | Solicitudes entre bodegas |
-| `conteos` | Auditorías físicas y diferencias |
-| `repuestos` | Catálogo de repuestos |
-
-## Seguridad
-
-- **Sin SQL dinámico**: Todas las consultas están escritas hardcodeadas
-- **Autenticación**: El endpoint requiere un Bearer token compartido
-- **Pool de conexiones**: Reutiliza conexiones a la base de datos
-
-## Licencia
-
-MIT
