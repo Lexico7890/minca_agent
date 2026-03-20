@@ -25,23 +25,17 @@ async def consultar_inventario(state: AgentState) -> AgentState:
         async with get_connection() as conn:
             cursor = await conn.execute("""
                 SELECT
-                    r.referencia,
-                    r.nombre AS nombre_repuesto,
-                    r.marca,
-                    r.tipo,
-                    i.cantidad,
-                    i.cantidad_minima,
-                    i.posicion,
-                    l.nombre AS localizacion,
-                    CASE
-                        WHEN i.cantidad = 0 THEN 'sin stock'
-                        WHEN i.cantidad <= i.cantidad_minima THEN 'stock bajo'
-                        ELSE 'normal'
-                    END AS estado_stock
-                FROM inventario i
-                JOIN repuestos r ON i.id_repuesto = r.id_repuesto
-                JOIN localizacion l ON i.id_localizacion = l.id_localizacion
-                ORDER BY l.nombre, r.nombre
+                    referencia,
+                    nombre AS nombre_repuesto,
+                    marca,
+                    tipo,
+                    stock_actual AS cantidad,
+                    cantidad_minima,
+                    posicion,
+                    nombre_localizacion AS localizacion,
+                    estado_stock
+                FROM v_inventario_completo
+                ORDER BY nombre_localizacion, nombre
                 LIMIT 300
             """)
             rows = await cursor.fetchall()
