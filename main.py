@@ -116,6 +116,10 @@ def obtener_memoria_sesion(session_id: Optional[str]) -> tuple[str, List[Mensaje
 
 def guardar_memoria_sesion(session_id: str, memoria: List[MensajeMemoria]):
     """Actualiza la memoria de una sesión después de procesar una pregunta."""
+    # Mantener el límite de memoria para evitar crecimiento infinito (ej: últimas 6 intervenciones)
+    MAX_HISTORIAL = 6
+    if len(memoria) > MAX_HISTORIAL:
+        memoria = memoria[-MAX_HISTORIAL:]
     _sesiones[session_id] = memoria
 
 

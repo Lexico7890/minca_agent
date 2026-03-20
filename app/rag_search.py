@@ -40,16 +40,20 @@ def _get_embed_model():
     return _embed_model
 
 
+import asyncio
+
 # --- Generación de embedding para la query ---
 
-def generar_embedding_query(texto: str) -> list[float]:
+async def generar_embedding_query(texto: str) -> list[float]:
     """Genera un embedding para la pregunta del usuario.
 
     Usa all-MiniLM-L6-v2 (mismo modelo que scripts/ingest_local.py).
-    Un solo texto, sin batching — es una query individual.
+    Se ejecuta en un hilo separado para no bloquear el event loop de FastAPI.
     """
     model = _get_embed_model()
-    embedding = model.encode([texto])[0].tolist()
+    # Ejecutamos la tarea intensiva en CPU (inferencia) en otro hilo
+    embedding_numpy = await asyncio.to_thread(model.encode, [texto])
+    embedding = embedding_numpy[0].tolist()
     print(f"BUSCADOR_RAG - Embedding generado ({len(embedding)} dims)")
     return embedding
 
@@ -77,7 +81,7 @@ async def buscar_documentos(state: AgentState) -> dict:
 
     try:
         # 1. Generar embedding de la pregunta
-        embedding = generar_embedding_query(pregunta)
+        embedding = await generar_embedding_query(pregunta)
 
         # 2. Buscar chunks similares usando match_documents()
         # La función retorna: id, contenido, pagina, chunk_index,
