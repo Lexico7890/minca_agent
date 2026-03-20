@@ -133,20 +133,21 @@ def _enforce_limit(sql: str, max_limit: int = 50) -> str:
     if is_pure_agg:
         return sql
 
-    # Verificar si ya tiene LIMIT
-    limit_match = re.search(r'\bLIMIT\s+(\d+)', normalized)
+    # Verificar si ya tiene LIMIT al final de la consulta
+    limit_match = re.search(r'\bLIMIT\s+(\d+)\s*;?\s*$', normalized)
     if limit_match:
         existing = int(limit_match.group(1))
         if existing > max_limit:
             sql = re.sub(
-                r'\bLIMIT\s+\d+',
+                r'\bLIMIT\s+\d+\s*;?\s*$',
                 f'LIMIT {max_limit}',
                 sql,
                 flags=re.IGNORECASE
             )
         return sql
 
-    # No tiene LIMIT, agregarlo
+    # Si hay un LIMIT intermedio pero no al final, agregamos uno global
+    # No tiene LIMIT al final, agregarlo
     return sql.rstrip().rstrip(";") + f" LIMIT {max_limit}"
 
 

@@ -148,49 +148,69 @@ def construir_contexto_memoria(state: AgentState) -> str:
     return "\n".join([f"{m.rol[0]}:{m.contenido[:60]}" for m in recientes])
 
 
-def generar_respuesta(state: AgentState) -> AgentState:
+def generar_respuesta(state: AgentState) -> dict:
     """Genera respuesta usando TOON (SQL) o contexto RAG (documentos)."""
 
     print(f"GENERADOR - Modo: {state.modo}, Intenciones: {state.intenciones}")
     print(f"GENERADOR - Bloques DB: {len(state.contexto_db)}, Chunks RAG: {len(state.contexto_rag)}")
 
+    nuevos_mensajes = [MensajeMemoria(rol="usuario", contenido=state.pregunta_actual[:70])]
+    errores_nuevos = []
+    respuesta_final = ""
+
     # Saludo
     if es_saludo(state.pregunta_actual):
-        state.respuesta_final = random.choice([
+        respuesta_final = random.choice([
             "¡Hola! Soy Dynamo. ¿En qué puedo ayudarte?",
             "¡Hola! ¿Qué necesitas?"
         ])
-        _actualizar_memoria(state)
-        return state
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
+        return {
+            "respuesta_final": respuesta_final,
+            "memoria": nuevos_mensajes
+        }
 
     # Error fatal
     if tiene_error_fatal(state):
-        state.respuesta_final = "Error. Intenta nuevamente."
-        return state
+        respuesta_final = "Error. Intenta nuevamente."
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
+        return {
+            "respuesta_final": respuesta_final,
+            "memoria": nuevos_mensajes
+        }
 
     # No reconocida
     if state.intenciones == ["no_reconocida"]:
-        state.respuesta_final = RESPUESTA_NO_RECONOCIDA
-        _actualizar_memoria(state)
-        return state
+        respuesta_final = RESPUESTA_NO_RECONOCIDA
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
+        return {
+            "respuesta_final": respuesta_final,
+            "memoria": nuevos_mensajes
+        }
 
     # --- Modo RAG: sin resultados ---
     if state.modo == "rag" and not state.contexto_rag:
-        state.respuesta_final = (
+        respuesta_final = (
             "No encontré información relevante en los documentos. "
             "Intenta reformular tu pregunta o verifica que el documento haya sido cargado."
         )
-        _actualizar_memoria(state)
-        return state
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
+        return {
+            "respuesta_final": respuesta_final,
+            "memoria": nuevos_mensajes
+        }
 
     # --- Modo SQL: ejecutado pero sin resultados ---
     if state.modo == "sql" and state.sql_generado and not _tiene_datos_db(state):
-        state.respuesta_final = (
+        respuesta_final = (
             "No encontré resultados para tu consulta. "
             "Intenta reformular la pregunta o verificar los nombres."
         )
-        _actualizar_memoria(state)
-        return state
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
+        return {
+            "respuesta_final": respuesta_final,
+            "memoria": nuevos_mensajes
+        }
 
     # --- Seleccionar contexto y prompt según modo ---
     if state.contexto_rag:
@@ -227,38 +247,31 @@ def generar_respuesta(state: AgentState) -> AgentState:
             use_quality_model=True
         )
 
-        state.respuesta_final = respuesta
+        respuesta_final = respuesta
 
     except RuntimeError as e:
         error_msg = str(e)[:150]
         print(f"GENERADOR - ERROR: {error_msg}")
 
         if "rate_limit" in error_msg.lower() or "tokens" in error_msg.lower():
-            state.respuesta_final = "Demasiadas consultas. Intenta en un momento."
+            respuesta_final = "Demasiadas consultas. Intenta en un momento."
         else:
-            state.respuesta_final = "Error. Intenta de nuevo."
+            respuesta_final = "Error. Intenta de nuevo."
 
-        state.errores.append({
+        errores_nuevos.append({
             "nodo": "generador",
             "mensaje": str(e),
             "recuperable": True
         })
 
-    _actualizar_memoria(state)
-    return state
+    if respuesta_final:
+        nuevos_mensajes.append(MensajeMemoria(rol="agente", contenido=respuesta_final[:70]))
 
+    resultado = {
+        "respuesta_final": respuesta_final,
+        "memoria": nuevos_mensajes
+    }
+    if errores_nuevos:
+        resultado["errores"] = errores_nuevos
 
-def _actualizar_memoria(state: AgentState):
-    state.memoria.append(MensajeMemoria(
-        rol="usuario",
-        contenido=state.pregunta_actual[:70]
-    ))
-    
-    if state.respuesta_final:
-        state.memoria.append(MensajeMemoria(
-            rol="agente",
-            contenido=state.respuesta_final[:70]
-        ))
-    
-    if len(state.memoria) > MAX_MENSAJES_MEMORIA * 2:
-        state.memoria = state.memoria[-(MAX_MENSAJES_MEMORIA * 2):]
+    return resultado
