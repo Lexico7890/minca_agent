@@ -24,7 +24,7 @@ repuestos(id_repuesto,referencia,nombre,marca,tipo,descripcion,descontinuado B)
 localizacion(id_localizacion,nombre)
 usuarios(id_usuario,nombre,email,activo B,aprobado B,id_rol>roles)
 roles(id_rol,nombre,permissions J)
-inventario(id_repuesto>repuestos,id_localizacion>localizacion,cantidad I,cantidad_minima I,posicion,nuevo_hasta T?)
+v_inventario_completo(id_inventario,id_repuesto>repuestos,id_localizacion>localizacion,stock_actual I,cantidad_minima I,posicion,referencia,nombre,descontinuado B,tipo,nombre_localizacion,estado_stock)
 garantias(id_garantia,id_repuesto>repuestos,estado,motivo_falla,comentarios_resolucion,orden,solicitante,kilometraje I,id_localizacion>localizacion,id_usuario_reporta>usuarios,id_tecnico_asociado>usuarios?,created_at T,updated_at T)
 movimientos_tecnicos(id_repuesto>repuestos,concepto,tipo,cantidad I,numero_orden,descargada B,id_localizacion>localizacion,id_usuario_responsable>usuarios,id_tecnico_asignado>usuarios,fecha T)
 registro_conteo(id_conteo,tipo,id_localizacion>localizacion,id_usuario>usuarios,total_items_auditados I,total_diferencia_encontrada I,total_items_pq I,observaciones,created_at T)
@@ -33,7 +33,8 @@ usuarios_localizacion(id_usuario>usuarios,id_localizacion>localizacion)
 
 garantias.estado:'Sin enviar'|'Pendiente'|'Aprobada'|'Rechazada'
 solicitudes.estado:pendiente|alistada|despachada|recibida
-registro_conteo.tipo:total|parcial"""
+registro_conteo.tipo:total|parcial
+v_inventario_completo.estado_stock:'CRITICO'|'BAJO'|'NORMAL'"""
 
 
 # --- Prompt del generador de SQL ---
@@ -52,6 +53,7 @@ REGLAS:
 8. Convierte UUIDs a texto con ::text cuando los incluyas en SELECT.
 9. Usa alias descriptivos (AS nombre_legible).
 10. Agrega LIMIT 50 excepto en agregaciones puras (COUNT/SUM sin GROUP BY).
+11. Usa la vista `v_inventario_completo` en lugar de `inventario` para todas las preguntas de stock y repuestos. Filtra por la columna `estado_stock` para los estados crítico, bajo o normal.
 
 {schema}
 
@@ -60,19 +62,16 @@ FORMATO: Retorna SOLO un JSON válido, sin markdown ni texto extra:
 
 EJEMPLOS:
 P: "cuantas pastillas hidráulicas hay en tester location"
-{{"sql": "SELECT r.nombre, SUM(i.cantidad) AS total FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%pastill%' AND r.nombre ILIKE '%hidraulic%' AND l.nombre ILIKE '%tester%' GROUP BY r.nombre", "explicacion": "Pastillas hidráulicas en Tester Location"}}
+{{"sql": "SELECT nombre, SUM(stock_actual) AS total FROM v_inventario_completo WHERE nombre ILIKE '%pastill%' AND nombre ILIKE '%hidraulic%' AND nombre_localizacion ILIKE '%tester%' GROUP BY nombre", "explicacion": "Pastillas hidráulicas en Tester Location"}}
 
-P: "cuantas llantas sellomatic tenemos en bodega central"
-{{"sql": "SELECT r.nombre, SUM(i.cantidad) AS total FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%llant%' AND r.nombre ILIKE '%sellomatic%' AND l.nombre ILIKE '%bodega central%' GROUP BY r.nombre", "explicacion": "Llantas sellomatic en Bodega Central"}}
-
-P: "qué repuestos tienen stock bajo"
-{{"sql": "SELECT r.referencia, r.nombre, i.cantidad, i.cantidad_minima, l.nombre AS localizacion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE i.cantidad <= i.cantidad_minima AND i.cantidad > 0 ORDER BY i.cantidad LIMIT 50", "explicacion": "Repuestos con stock bajo"}}
+P: "qué repuestos tienen stock critico"
+{{"sql": "SELECT referencia, nombre, stock_actual, cantidad_minima, nombre_localizacion FROM v_inventario_completo WHERE estado_stock = 'CRITICO' AND stock_actual > 0 ORDER BY stock_actual LIMIT 50", "explicacion": "Repuestos en estado crítico"}}
 
 P: "cuántas garantías pendientes hay"
 {{"sql": "SELECT COUNT(*) AS total_pendientes FROM garantias WHERE estado ILIKE '%pendiente%'", "explicacion": "Total de garantías pendientes"}}
 
 P: "muéstrame los filtros de aceite en taller norte"
-{{"sql": "SELECT r.referencia, r.nombre, i.cantidad, i.posicion, l.nombre AS localizacion FROM inventario i JOIN repuestos r ON i.id_repuesto = r.id_repuesto JOIN localizacion l ON i.id_localizacion = l.id_localizacion WHERE r.nombre ILIKE '%filtr%' AND r.nombre ILIKE '%aceit%' AND l.nombre ILIKE '%taller norte%' ORDER BY r.nombre LIMIT 50", "explicacion": "Filtros de aceite en Taller Norte"}}"""
+{{"sql": "SELECT referencia, nombre, stock_actual, posicion, nombre_localizacion FROM v_inventario_completo WHERE nombre ILIKE '%filtr%' AND nombre ILIKE '%aceit%' AND nombre_localizacion ILIKE '%taller norte%' ORDER BY nombre LIMIT 50", "explicacion": "Filtros de aceite en Taller Norte"}}"""
 
 
 # --- Keywords prohibidos en SQL ---
@@ -160,6 +159,7 @@ def _inferir_intenciones(sql: str) -> list[str]:
     sql_lower = sql.lower()
     intenciones = []
     table_map = {
+        "v_inventario_completo": "inventario",
         "inventario": "inventario",
         "garantias": "garantias",
         "movimientos_tecnicos": "movimientos_tecnicos",
